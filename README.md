@@ -7,7 +7,9 @@ through approved feature contracts.
 
 The product can read and verify the existing PostgreSQL 17/pgvector database.
 It also supports ACL-safe keyword and semantic retrieval, alias expansion,
-reciprocal rank fusion, and one result per root document. The API exposes
+reciprocal rank fusion, one result per root document, and query-aware enterprise
+ranking for freshness, source authority, exact Jira keys, and primary-project
+context. The API exposes
 demo-user selection, search, source facets, and safe click analytics. The API
 also supports bounded grounded answers when `create_app` receives an
 OpenAI-compatible Responses client. Answer citations are limited to ACL-safe

@@ -2,8 +2,8 @@
 
 ## Status
 
-Approved by the clean product migration roadmap and the product-intent audit
-below.
+Implemented from the clean product migration roadmap and the product-intent
+audit below.
 
 ## User outcome
 
@@ -27,7 +27,8 @@ project, while ordinary historical queries keep their relevance order.
 - Add profile-controlled freshness, source-authority, exact-Jira-key, and
   primary-project weights.
 - Apply freshness only to explicit recent-information queries.
-- Rank with the newest matching child or root timestamp.
+- Give one small query-aware boost to the newest matching child or root
+  timestamp; do not broadly sort all results by date.
 - Apply source authority only when the query clearly names a source-owned fact.
 - Boost an exact Jira key only when the Jira `issue_metadata` evidence contains
   that complete key.
@@ -128,6 +129,12 @@ Questions: none
 - `docker compose config --quiet`
 - `git diff --check`
 - one final whole-feature review
+
+Fresh focused comparison: `4` top-result wins, `0` protected-query losses.
+The populated-database read-only probe completed paired baseline-plus-released
+keyword-only searches in about `1.4–5.4 ms` in this local run; it made no writes and
+did not run the exhaustive ACL scan. Queries requiring semantic recall cannot
+be judged by that keyword-only probe and remain a Feature 8 evaluation gate.
 
 ## Source reference
 
