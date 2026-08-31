@@ -20,4 +20,3 @@ def test_grounded_answer_eval_accepts_only_opened_acl_safe_evidence():
     }
 
     assert evaluate_grounding(answer, opened)["grounded"] is True
-

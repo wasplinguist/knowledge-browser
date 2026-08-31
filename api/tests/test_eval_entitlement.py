@@ -36,4 +36,3 @@ def test_independent_entitlement_builds_allowed_document_sets():
 
     assert allowed_documents(documents, USER, {ENG}) == {"company", "direct", "group"}
     assert allowed_documents(documents, OTHER, set()) == {"company"}
-

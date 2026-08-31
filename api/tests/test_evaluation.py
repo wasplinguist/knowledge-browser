@@ -116,4 +116,3 @@ def test_grounding_evaluation_requires_opened_unique_citations():
         "duplicate_citations": 1,
         "unopened_citations": [("slack", "not-opened")],
     }
-

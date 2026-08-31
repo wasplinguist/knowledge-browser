@@ -139,4 +139,3 @@ def evaluate_grounding(
         "duplicate_citations": duplicates,
         "unopened_citations": unopened,
     }
-
