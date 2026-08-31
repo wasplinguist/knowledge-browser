@@ -65,8 +65,8 @@ plus its newer, uncommitted answer and web changes on 2026-09-01.
 
 ## Explicit exclusions
 
-- No freshness or temporal boost.
-- No aliases, translation, version boost, or AI reranking.
+- No new freshness or temporal boost.
+- No new aliases, translation, version boost, or AI reranking.
 - No source ingestion or destructive schema migration.
 - No generated corpus, old report, or old run artifact.
 - No claim that this search is better than native Slack, Jira, Confluence, or

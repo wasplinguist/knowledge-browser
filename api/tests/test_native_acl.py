@@ -13,7 +13,7 @@ from knowledge_browser.search import hybrid_search
 NATIVE_DATABASE = os.environ.get("NATIVE_EVAL_DATABASE_URL")
 ROOT = Path(__file__).parents[2]
 NATIVE_QUERIES = Path(os.environ.get(
-    "NATIVE_GOLDEN_QUERIES", ROOT / "eval" / "native_acl_queries.json"
+    "NATIVE_GOLDEN_QUERIES", ROOT / "eval" / "queries.json"
 ))
 NATIVE_PROFILE = Path(os.environ.get(
     "NATIVE_RELEASED_PROFILE", ROOT / "search" / "profiles" / "released.json"

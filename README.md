@@ -11,10 +11,11 @@ reciprocal rank fusion, one result per root document, and query-aware enterprise
 ranking for freshness, source authority, exact Jira keys, and primary-project
 context. The API exposes
 demo-user selection, search, source facets, and safe click analytics. The API
-also supports bounded grounded answers when `create_app` receives an
-OpenAI-compatible Responses client. Answer citations are limited to ACL-safe
-chunks opened during that request. Tests use fake clients and make no paid
-calls. The web app provides search, grounded answers, deduplicated provenance,
+also supports bounded grounded answers through `OPENAI_API_KEY` or an injected
+OpenAI-compatible Responses client. `ANSWER_MODEL` selects the answer model.
+Embedding failure keeps keyword search available. Answer citations are limited
+to ACL-safe chunks opened during that request. Tests use fake clients and make
+no paid calls. The web app provides search, grounded answers, deduplicated provenance,
 source facets, and ACL-safe local panels for Jira, Confluence, Slack, and
 GitHub data.
 
@@ -87,7 +88,7 @@ api/.venv/bin/python -m pytest -q -m unit api/tests
 # Normal API pull-request checks
 api/.venv/bin/python -m pytest -q -m "unit or integration" api/tests
 
-# Search and grounded-RAG evaluation, without nightly ACL work
+# Search and grounded-RAG evaluation, without nightly full-corpus work
 api/.venv/bin/python -m pytest -q \
   -m "(search_eval or rag_eval) and not nightly" api/tests
 
@@ -103,12 +104,19 @@ git diff --check
 The exhaustive ACL group is intentionally separate from normal work:
 
 ```bash
+# Manual/nightly full retrieval quality gate. The optional cache avoids
+# requesting embeddings that already exist.
+NATIVE_EVAL_DATABASE_URL='postgresql://.../knowledge_search_eval' \
+NATIVE_EMBEDDING_CACHE='/path/to/embeddings.json' \
+OPENAI_API_KEY='...' EVALUATION_REPORT_PATH='/tmp/retrieval.json' \
+  api/.venv/bin/python -m pytest -q -s -m full_retrieval api/tests
+
 # Manual/nightly ACL gate. Any root or child leak fails.
 NATIVE_EVAL_DATABASE_URL='postgresql://.../knowledge_search' \
   api/.venv/bin/python -m pytest -q -m full_acl api/tests
 
 # Complete release/nightly API suite.
-api/.venv/bin/python -m pytest -q api/tests
+api/.venv/bin/python -m pytest -q -m "not (full_acl or full_retrieval)" api/tests
 ```
 
 Do not remove search or RAG evaluation to make CI faster. Pull-request CI runs
@@ -116,7 +124,8 @@ fast API checks and the small non-nightly evaluation. Nightly/manual CI keeps
 the full ACL and complete-suite gates. Evaluation reports are CI artifacts and
 are not committed to the repository.
 
-The native ACL job uses the committed 603-query text projection and every user
+The native retrieval and ACL jobs use the committed full 603-query definitions.
+The ACL job uses every user
 in the configured read-only database. This is 60,300 query/user pairs for the
 current 100-user, 1,000-root corpus. The job fails when its protected database
 secret or expected corpus shape is missing. Never point it at a write database.
