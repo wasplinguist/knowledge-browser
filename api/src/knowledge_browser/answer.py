@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 from typing import Any, Callable
@@ -8,6 +9,7 @@ from .search import hybrid_search, read_chunk
 
 
 MODE_BUDGETS = {"fast": (3, 4), "deep": (12, 24)}
+DEFAULT_MODEL = "gpt-4.1-mini"
 SOURCES = ("confluence", "github", "jira", "slack")
 TOOLS = [
     {
@@ -41,6 +43,49 @@ TOOLS = [
         },
     },
 ]
+
+ANSWER_TEXT_CONFIG = {
+    "format": {
+        "type": "json_schema",
+        "name": "knowledge_browser_answer",
+        "description": "A grounded answer with separate evidence metadata.",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "evidence_status": {
+                    "type": "string",
+                    "enum": ["complete", "incomplete", "conflicting"],
+                },
+                "citations": {"type": "array", "items": {"type": "string"}},
+                "conflicts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "citations": {
+                                "type": "array", "items": {"type": "string"}
+                            },
+                        },
+                        "required": ["description", "citations"],
+                        "additionalProperties": False,
+                    },
+                },
+                "missing_information": {
+                    "type": "array", "items": {"type": "string"}
+                },
+                "follow_ups": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [
+                "answer", "evidence_status", "citations", "conflicts",
+                "missing_information", "follow_ups",
+            ],
+            "additionalProperties": False,
+        },
+    }
+}
 
 
 class AnswerExecutionError(RuntimeError):
@@ -100,6 +145,7 @@ def answer_question(
     profile: SearchProfile | None = None,
 ) -> dict[str, Any]:
     profile = profile or SearchProfile(name="released")
+    model = os.environ.get("ANSWER_MODEL", DEFAULT_MODEL)
     selected_mode = route_mode(question, mode)
     max_tool_calls, max_reads = MODE_BUDGETS[selected_mode]
     started_at = time.perf_counter()
@@ -115,15 +161,20 @@ def answer_question(
         conn, user_id, question, embedding, source, profile
     )
     instructions = (
-        "Use only opened chunks for company facts. Read a chunk before citing it. "
+        "Use the initial allowed hybrid results first. Call hybrid_search again "
+        "only when they do not contain enough evidence. Use only opened chunks "
+        "for company facts. Read a chunk before citing it. "
         "If evidence is missing, say incomplete. If opened evidence disagrees, "
-        "say conflicting and cite both sides. Return JSON with answer, "
-        "evidence_status, citations, conflicts, missing_information, and follow_ups."
+        "say conflicting and cite both sides. Keep the answer concise and readable. "
+        "Put [1], [2], and so on after supported claims in citation order. Never "
+        "put raw chunk IDs or evidence field names in the answer text. Return the "
+        "remaining evidence data only in its structured fields."
     )
 
     def execution() -> dict[str, Any]:
         return {
             "mode": selected_mode,
+            "model": model,
             "llm_loops": llm_loops,
             "tool_calls": tool_calls,
             "opened_chunks": len(opened),
@@ -133,13 +184,14 @@ def answer_question(
     def create_response(**request):
         nonlocal llm_loops
         llm_loops += 1
+        request.setdefault("text", ANSWER_TEXT_CONFIG)
         try:
             return client.responses.create(**request)
         except Exception as error:
             raise AnswerExecutionError(execution(), trace) from error
 
     response = create_response(
-        model="gpt-4.1-mini",
+        model=model,
         input=[{
             "role": "user",
             "content": question + "\n\nInitial allowed hybrid results:\n" + json.dumps(
@@ -222,7 +274,7 @@ def answer_question(
             })
         limited = tool_calls >= max_tool_calls or len(opened) >= max_reads
         response = create_response(
-            model="gpt-4.1-mini",
+            model=model,
             input=outputs,
             previous_response_id=getattr(response, "id", None),
             tools=[] if limited else TOOLS,

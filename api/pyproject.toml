@@ -8,6 +8,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",
+  "openai>=1,<2",
   "psycopg[binary]>=3.2,<4",
   "uvicorn>=0.30,<1",
 ]
@@ -23,6 +24,7 @@ markers = [
   "integration: API behavior exercised against dedicated PostgreSQL",
   "search_eval: retrieval quality, golden-query, or search evaluation",
   "rag_eval: grounded-answer evidence and citation evaluation",
+  "full_retrieval: complete native-corpus retrieval quality overlay",
   "full_acl: exhaustive configured-corpus ACL safety overlay",
   "nightly: long-running test excluded from normal pull-request jobs",
 ]

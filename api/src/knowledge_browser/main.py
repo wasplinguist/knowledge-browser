@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+import os
 from pathlib import Path
 import time
 from typing import Any, Literal
@@ -20,6 +21,20 @@ from .search import hybrid_search
 
 
 SOURCES = ("confluence", "github", "jira", "slack")
+
+
+def _default_embed(text: str, model: str) -> list[float]:
+    from openai import OpenAI
+
+    return OpenAI().embeddings.create(
+        model=model, input=text
+    ).data[0].embedding
+
+
+def _default_answer_client():
+    from openai import OpenAI
+
+    return OpenAI()
 
 
 class ClickRequest(BaseModel):
@@ -56,6 +71,9 @@ def create_app(
     )
     search_profile = profile or load_profile(
         Path(__file__).parents[3] / "search" / "profiles" / "released.json"
+    )
+    embed_text = embed or (
+        lambda text: _default_embed(text, search_profile.embedding_model)
     )
 
     @app.exception_handler(RequestValidationError)
@@ -103,7 +121,7 @@ def create_app(
                 normalized_query = expand_query(q.strip(), search_profile)
                 started_at = time.perf_counter()
                 try:
-                    embedding = embed(normalized_query) if embed else None
+                    embedding = embed_text(normalized_query)
                 except Exception:
                     embedding = None
                 items = hybrid_search(
@@ -220,7 +238,7 @@ def create_app(
             return _error("invalid_query", "question must not be empty")
         if body.source and body.source not in SOURCES:
             return _error("invalid_source", "source is invalid")
-        if answer_client is None:
+        if answer_client is None and not os.environ.get("OPENAI_API_KEY"):
             return _error(
                 "answer_provider_unavailable",
                 "AI answer provider is unavailable",
@@ -235,8 +253,8 @@ def create_app(
                     conn,
                     str(identity.id),
                     body.question.strip(),
-                    embed or (lambda _query: None),
-                    answer_client,
+                    embed_text,
+                    answer_client or _default_answer_client(),
                     source=body.source,
                     mode=body.mode,
                     include_trace=body.debug,
