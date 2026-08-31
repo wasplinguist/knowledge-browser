@@ -340,3 +340,37 @@ def test_duplicate_citation_ids_return_one_citation(monkeypatch):
     )
 
     assert [item["chunk_id"] for item in answer["citations"]] == [hit["chunk_id"]]
+
+
+def test_allowed_search_document_id_resolves_to_its_discovered_chunk(monkeypatch):
+    hit = _result()
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])
+    reads = []
+
+    def read(_conn, _user, _source, chunk_id):
+        reads.append(chunk_id)
+        return {**hit, "text": hit["excerpt"]} if chunk_id == hit["chunk_id"] else None
+
+    monkeypatch.setattr(answer_module, "read_chunk", read)
+    responses = Responses([
+        _call("read", "read_chunk", {
+            "source": "jira", "chunk_id": hit["external_id"],
+        }),
+        _final({
+            "answer": "The queue was saturated [1].",
+            "evidence_status": "complete",
+            "citations": [hit["url"], "https://hidden.example/SECRET"],
+            "conflicts": [],
+            "missing_information": [],
+            "follow_ups": [],
+        }),
+    ])
+
+    answer = answer_module.answer_question(
+        None, "user", "What happened?", lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    assert reads == [hit["external_id"], hit["chunk_id"]]
+    assert [item["chunk_id"] for item in answer["citations"]] == [hit["chunk_id"]]
+    assert answer["evidence_status"] == "complete"

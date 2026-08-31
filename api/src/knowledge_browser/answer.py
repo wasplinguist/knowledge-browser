@@ -152,6 +152,22 @@ def answer_question(
     trace: list[dict[str, Any]] = []
     llm_loops = tool_calls = 0
     opened: dict[tuple[str, str], dict[str, Any]] = {}
+    discovered: dict[tuple[str, str], str | None] = {}
+
+    def remember(results: list[dict[str, Any]]) -> None:
+        for item in results:
+            source_name = item.get("source")
+            chunk_id = item.get("chunk_id")
+            if not isinstance(source_name, str) or not isinstance(chunk_id, str):
+                continue
+            for external_id in (
+                item.get("external_id"), item.get("matched_external_id")
+            ):
+                if not isinstance(external_id, str):
+                    continue
+                key = (source_name, external_id)
+                previous = discovered.get(key, chunk_id)
+                discovered[key] = chunk_id if previous == chunk_id else None
 
     try:
         embedding = embed(question)
@@ -160,6 +176,7 @@ def answer_question(
     initial_results = hybrid_search(
         conn, user_id, question, embedding, source, profile
     )
+    remember(initial_results)
     instructions = (
         "Use the initial allowed hybrid results first. Call hybrid_search again "
         "only when they do not contain enough evidence. Use only opened chunks "
@@ -167,7 +184,9 @@ def answer_question(
         "If evidence is missing, say incomplete. If opened evidence disagrees, "
         "say conflicting and cite both sides. Keep the answer concise and readable. "
         "Put [1], [2], and so on after supported claims in citation order. Never "
-        "put raw chunk IDs or evidence field names in the answer text. Return the "
+        "put raw chunk IDs or evidence field names in the answer text. In the "
+        "structured citations field, return only exact chunk_id values from "
+        "successfully opened chunks, never URLs or external IDs. Return the "
         "remaining evidence data only in its structured fields."
     )
 
@@ -231,9 +250,14 @@ def answer_question(
                     and isinstance(arguments.get("chunk_id"), str)
                     and len(opened) < max_reads
                 ):
-                    result = read_chunk(
-                        conn, user_id, requested_source, arguments["chunk_id"]
-                    )
+                    requested_id = arguments["chunk_id"]
+                    result = read_chunk(conn, user_id, requested_source, requested_id)
+                    if not result:
+                        resolved_id = discovered.get((requested_source, requested_id))
+                        if resolved_id:
+                            result = read_chunk(
+                                conn, user_id, requested_source, resolved_id
+                            )
                     if result:
                         opened[(result["source"], result["chunk_id"])] = result
                 elif call.name == "hybrid_search" and isinstance(arguments.get("query"), str):
@@ -245,6 +269,7 @@ def answer_question(
                     result = hybrid_search(
                         conn, user_id, query, query_embedding, requested_source, profile
                     ) if query else []
+                    remember(result)
                 else:
                     result = {"error": "invalid arguments or tool limit reached"}
             except Exception as error:
@@ -302,18 +327,39 @@ def answer_question(
             ambiguous.add(chunk_id)
         elif chunk_id not in ambiguous:
             citeable[chunk_id] = chunk
+    aliases: dict[str, str] = {}
+    ambiguous_aliases: set[str] = set()
+    for chunk_id, chunk in citeable.items():
+        for alias in (
+            chunk.get("external_id"), chunk.get("matched_external_id"),
+            chunk.get("url"),
+        ):
+            if not isinstance(alias, str) or alias in ambiguous_aliases:
+                continue
+            if alias in aliases and aliases[alias] != chunk_id:
+                aliases.pop(alias)
+                ambiguous_aliases.add(alias)
+            else:
+                aliases[alias] = chunk_id
+
+    def resolve_citation_id(value: str) -> str | None:
+        return value if value in citeable else aliases.get(value)
+
+    citation_ids = []
+    for value in _citation_ids(payload.get("citations")):
+        resolved = resolve_citation_id(value)
+        if resolved and resolved not in citation_ids:
+            citation_ids.append(resolved)
     citations = [
-        _citation(citeable[chunk_id])
-        for chunk_id in dict.fromkeys(_citation_ids(payload.get("citations")))
-        if chunk_id in citeable
+        _citation(citeable[chunk_id]) for chunk_id in citation_ids
     ]
     conflicts = []
     for conflict in payload.get("conflicts", []) if isinstance(payload.get("conflicts"), list) else []:
         if not isinstance(conflict, dict):
             continue
         ids = list(dict.fromkeys(
-            chunk_id for chunk_id in _citation_ids(conflict.get("citations"))
-            if chunk_id in citeable
+            resolved for value in _citation_ids(conflict.get("citations"))
+            if (resolved := resolve_citation_id(value))
         ))
         if len(ids) >= 2:
             conflicts.append({
