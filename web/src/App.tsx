@@ -40,6 +40,18 @@ function uniqueCitations(citations: Citation[]) {
   })
 }
 
+const evidenceLabels = {
+  complete: 'Evidence checked',
+  incomplete: 'Some information may be missing',
+  conflicting: 'Sources conflict',
+} as const
+
+function citationKey(citation: Citation) {
+  return citation.source && citation.external_id
+    ? `${citation.source}:${citation.external_id}`
+    : citation.url || citation.chunk_id
+}
+
 export default function App() {
   const [users, setUsers] = useState<DemoUser[]>([])
   const [userId, setUserId] = useState('')
@@ -138,6 +150,29 @@ export default function App() {
     selectedResult.current?.focus()
   }, [])
   const currentUser = users.find((user) => user.id === userId)
+  const answerText = (text: string, citations: Citation[]) => {
+    const documents = uniqueCitations(citations)
+    return text.split(/(\[\d+\])/).map((part, index) => {
+      const match = part.match(/^\[(\d+)\]$/)
+      const citation = match ? citations[Number(match[1]) - 1] : undefined
+      if (!citation?.source || !citation.external_id) return part
+      const documentIndex = documents.findIndex(
+        (document) => citationKey(document) === citationKey(citation),
+      )
+      const number = documentIndex < 0 ? Number(match![1]) : documentIndex + 1
+      return <button
+        type="button"
+        className="inline-citation"
+        aria-label={`Citation ${number}: ${citation.title || citation.external_id}`}
+        key={`${citationKey(citation)}-${index}`}
+        onClick={(event) => openDocument({
+          source: citation.source!,
+          external_id: citation.external_id!,
+          title: citation.title || citation.external_id!,
+        }, event.currentTarget)}
+      >[{number}]</button>
+    })
+  }
 
   return <div className="shell">
     <header className="topbar">
@@ -187,14 +222,34 @@ export default function App() {
         {hasSearched && !searchError && <>
           <section className="answer-panel" aria-label="AI answer">
             <div className="answer-section">
-              <h2><span className="orb">✦</span>AI Answer</h2>
-              {answerResult?.answer && <p>{answerResult.answer}</p>}
+              <div className="answer-heading">
+                <h2><span className="orb">✦</span>AI Answer</h2>
+                {answerResult?.evidence_status && <span className={`evidence-state ${answerResult.evidence_status}`}>
+                  {evidenceLabels[answerResult.evidence_status]}
+                </span>}
+              </div>
+              {answerResult?.answer && <div className="answer-copy">
+                {answerResult.answer.split(/\n\s*\n/).map((paragraph, index) =>
+                  <p key={index}>{answerText(paragraph, answerResult.citations)}</p>)}
+              </div>}
               {!answerResult && !answerError && <p className="muted">Generating a grounded answer…</p>}
               {answerError && <p className="answer-error">{answerError}</p>}
-              {answerResult && <div className="citations">
-                {uniqueCitations(answerResult.citations).map((citation, index) =>
+              {!!answerResult?.conflicts?.length && <aside className="answer-note conflict">
+                <h3>Conflicting evidence</h3>
+                <ul>{answerResult.conflicts.map((conflict, index) =>
+                  <li key={index}>{conflict.description}</li>)}</ul>
+              </aside>}
+              {!!answerResult?.missing_information?.length && <aside className="answer-note">
+                <h3>Missing information</h3>
+                <ul>{answerResult.missing_information.map((item, index) =>
+                  <li key={index}>{item}</li>)}</ul>
+              </aside>}
+              {!!answerResult?.citations.length && <section className="citations" aria-label="Sources">
+                <h3>Sources</h3>
+                <div className="citation-list">{uniqueCitations(answerResult.citations).map((citation, index) =>
                   <button
-                    key={citation.url || `${citation.source}:${citation.external_id}` || index}
+                    className="citation"
+                    key={citationKey(citation) || index}
                     onClick={(event) => {
                       if (citation.source && citation.external_id) {
                         openDocument({
@@ -205,9 +260,20 @@ export default function App() {
                       }
                     }}
                   >
-                    {index + 1}. {citation.title || citation.external_id || 'Source'}
-                  </button>)}
-              </div>}
+                    <span className="citation-number">{index + 1}</span>
+                    <span><strong>{citation.source ? sourceName(citation.source) : 'Source'}</strong>
+                      <small>{[citation.external_id, citation.title].filter(Boolean).join(' · ') || 'Supporting evidence'}</small>
+                    </span>
+                  </button>)}</div>
+              </section>}
+              {!!answerResult?.follow_ups.length && <section className="suggestions" aria-label="Suggested follow-up questions">
+                <h3>Ask next</h3>
+                {answerResult.follow_ups.map((question) => <button
+                  type="button"
+                  key={question}
+                  onClick={() => { setQuery(question); clearResults() }}
+                >{question}</button>)}
+              </section>}
             </div>
           </section>
 
