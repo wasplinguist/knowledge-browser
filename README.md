@@ -12,7 +12,9 @@ demo-user selection, search, source facets, and safe click analytics. The API
 also supports bounded grounded answers when `create_app` receives an
 OpenAI-compatible Responses client. Answer citations are limited to ACL-safe
 chunks opened during that request. Tests use fake clients and make no paid
-calls. The full web experience arrives in a later PR.
+calls. The web app provides search, grounded answers, deduplicated provenance,
+source facets, and ACL-safe local panels for Jira, Confluence, Slack, and
+GitHub data.
 
 ## Requirements
 

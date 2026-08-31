@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from .analytics import record_click, record_search
 from .answer import AnswerExecutionError, answer_question
 from .db import connection
+from .documents import get_document_detail
 from .profiles import SearchProfile, expand_query, load_profile
 from .repository import resolve_identity
 from .search import hybrid_search
@@ -181,6 +182,32 @@ def create_app(
             return _error(
                 "search_event_unavailable", "search event is unavailable", 503
             )
+
+    @app.get("/api/documents/{source}/{external_id}")
+    def document_route(
+        source: str,
+        external_id: str,
+        x_demo_user_id: str | None = Header(default=None),
+    ):
+        if not x_demo_user_id:
+            return _error("missing_demo_user", "X-Demo-User-Id is required")
+        if source not in SOURCES:
+            return _error("invalid_source", "source is invalid")
+        try:
+            with connection_factory() as conn:
+                identity = resolve_identity(conn, x_demo_user_id)
+                if identity is None:
+                    return _error("unknown_demo_user", "select a valid demo user")
+                item = get_document_detail(
+                    conn, str(identity.id), source, external_id
+                )
+                if item is None:
+                    return _error(
+                        "document_not_found", "document is unavailable", 404
+                    )
+                return item
+        except Exception:
+            return _error("document_unavailable", "document is unavailable", 503)
 
     @app.post("/api/answer")
     def answer_route(
