@@ -51,6 +51,39 @@ from every query type, each selected query owner, and a stable spread of other
 users. It is only a development gate. Native full ACL remains required before
 release.
 
+## Manifest example
+
+Save a challenger profile under `search/profiles/candidates/` and an experiment
+manifest under `eval/experiments/<id>/experiment.json`. Evidence and embeddings
+may be absolute local paths outside Git. Profiles and golden queries must stay
+inside this repository.
+
+```json
+{
+  "id": "2026-09-01-nrel-alias",
+  "created_at": "2026-09-01T09:00:00Z",
+  "evidence_report": "/tmp/knowledge-browser-behavior/20260901T000000Z-weekly.json",
+  "insight": "People reformulate NREL as Nimbus Relay.",
+  "hypothesis": "The whole-term alias improves nDCG@10 by at least 0.01.",
+  "implementation": "Expand the exact whole term NREL to Nimbus Relay.",
+  "affected_intents": ["acronym_alias"],
+  "target_metrics": ["ndcg@10", "recall@10", "acl_leaks"],
+  "regression_risk": "Unrelated uses of NREL may move.",
+  "intent_audit": {"verdict": "ALIGNED", "evidence": "weekly reformulation"},
+  "baseline_profile": "search/profiles/released.json",
+  "challenger_profile": "search/profiles/candidates/nrel-alias.json",
+  "golden_queries": "eval/golden_queries.json",
+  "query_embeddings": "/tmp/knowledge-browser-behavior/query-embeddings.json",
+  "golden_changes": [],
+  "golden_change_reason": "Existing labels already measure this behavior.",
+  "status": "implemented"
+}
+```
+
+Every golden query ID needs one 1,536-number vector in the embeddings JSON.
+Repeated query text must use the same vector. An unclicked query alone does not
+prove an alias or a relevance label; keep the uncertainty or stop.
+
 ## Decision gate
 
 Recommend the separate release gate only when:

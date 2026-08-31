@@ -122,6 +122,28 @@ current 100-user, 1,000-root corpus. The job fails when its protected database
 secret or expected corpus shape is missing. Never point it at a write database.
 It starts a read-only transaction and requires zero root and child leaks.
 
+## Eval-driven search improvement
+
+Create a fresh, read-only behavior report outside the repository:
+
+```bash
+DATABASE_URL='postgresql://...' api/.venv/bin/python scripts/run_eval_loop.py \
+  analyze --days 7 --output-dir /tmp/knowledge-browser-behavior
+```
+
+After one evidence-backed challenger has an `ALIGNED` intent audit and complete
+manifest, run a new comparison:
+
+```bash
+DATABASE_URL='postgresql://...' api/.venv/bin/python scripts/run_eval_loop.py \
+  evaluate --experiment eval/experiments/<id>/experiment.json \
+  --output-dir /tmp/knowledge-browser-runs/<id>
+```
+
+The repository skill is `.codex/skills/eval-driven-development/SKILL.md`.
+Generated behavior and evaluation reports stay outside Git. The development
+loop can only recommend the separate human-reviewed release gate.
+
 ## Product and contribution rules
 
 - Product guardrails: `docs/PRODUCT_INTENT.md`

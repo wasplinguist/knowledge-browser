@@ -32,7 +32,9 @@ def _manifest(root: Path) -> Path:
         "type": "acronym_alias", "acl_aware": True,
         "relevant": ["jira:COMPANY-1"],
     }]))
-    (root / "eval" / "embeddings.json").write_text(json.dumps({"q1": [0.0]}))
+    (root / "eval" / "embeddings.json").write_text(
+        json.dumps({"q1": [0.0] * 1536})
+    )
     path = root / "experiment.json"
     path.write_text(json.dumps({
         "id": "exp-nrel",
@@ -92,6 +94,24 @@ def test_manifest_requires_fresh_evidence_aligned_audit_and_distinct_profiles(tm
         validate_manifest(path, tmp_path)
 
 
+def test_manifest_rejects_bad_or_ambiguous_query_embeddings(tmp_path):
+    path = _manifest(tmp_path)
+    embeddings_path = tmp_path / "eval" / "embeddings.json"
+    embeddings_path.write_text(json.dumps({"q1": [0.0]}))
+    with pytest.raises(ValueError, match="1,536"):
+        validate_manifest(path, tmp_path)
+
+    data = json.loads((tmp_path / "eval" / "queries.json").read_text())
+    data.append({**data[0], "id": "q2"})
+    (tmp_path / "eval" / "queries.json").write_text(json.dumps(data))
+    embeddings_path.write_text(json.dumps({
+        "q1": [0.0] * 1536,
+        "q2": [1.0] * 1536,
+    }))
+    with pytest.raises(ValueError, match="same text"):
+        validate_manifest(path, tmp_path)
+
+
 def test_fast_acl_sample_is_deterministic_and_includes_acl_queries_and_owners():
     queries = [
         {"id": "acl", "type": "known_item", "as_user": "u3", "acl_aware": True},
@@ -127,12 +147,16 @@ def test_run_requires_new_output_and_writes_hashed_json_and_easy_html(tmp_path):
         evaluate=lambda _manifest, _paths: _evaluation(),
         now=lambda: datetime(2026, 9, 1, 1, tzinfo=timezone.utc),
         git_sha="abc123",
+        command=["scripts/run_eval_loop.py", "evaluate"],
     )
 
     payload = json.loads((output / "run.json").read_text())
     html = report.read_text()
     assert payload["decision"] == "recommend-release-gate"
     assert payload["provenance"]["git_sha"] == "abc123"
+    assert payload["provenance"]["command"] == [
+        "scripts/run_eval_loop.py", "evaluate"
+    ]
     assert set(payload["provenance"]["sha256"]) == {
         "evidence", "baseline_profile", "challenger_profile", "golden_queries",
         "query_embeddings",
@@ -140,6 +164,8 @@ def test_run_requires_new_output_and_writes_hashed_json_and_easy_html(tmp_path):
     assert "People rewrite NREL" in html
     assert "0.500" in html and "0.530" in html
     assert "13" in html
+    assert "q1" in html
+    assert payload["provenance"]["sha256"]["evidence"] in html
     assert "No profile was promoted" in html
 
     with pytest.raises(ValueError, match="new and empty"):
