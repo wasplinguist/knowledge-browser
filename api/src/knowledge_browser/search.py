@@ -17,10 +17,6 @@ JIRA_KEY = re.compile(
     re.IGNORECASE,
 )
 AUTHORITY_SIGNALS = (
-    ("jira", re.compile(
-        r"\b(status|assignee|ticket|issue|target version|fix version|affected version)\b",
-        re.IGNORECASE,
-    )),
     ("github", re.compile(
         r"\b(pull request|pr|commit|merged|code|repository)\b", re.IGNORECASE,
     )),
@@ -31,7 +27,15 @@ AUTHORITY_SIGNALS = (
     ("slack", re.compile(
         r"\b(first mentioned|message|thread|conversation|said)\b", re.IGNORECASE,
     )),
+    ("jira", re.compile(
+        r"\b(status|assignee|ticket|issue|target version|fix version|affected version)\b",
+        re.IGNORECASE,
+    )),
 )
+EXPLICIT_SOURCES = {
+    source: re.compile(rf"\b{source}\b", re.IGNORECASE)
+    for source in ("jira", "github", "confluence", "slack")
+}
 
 
 def _timestamp(value: datetime | str | None) -> datetime:
@@ -52,6 +56,14 @@ def _evidence_timestamp(item: dict[str, Any]) -> datetime:
 
 
 def _authoritative_source(query: str) -> str | None:
+    explicit = [
+        source for source, pattern in EXPLICIT_SOURCES.items()
+        if pattern.search(query)
+    ]
+    if len(explicit) == 1:
+        return explicit[0]
+    if len(explicit) > 1:
+        return None
     return next(
         (source for source, pattern in AUTHORITY_SIGNALS if pattern.search(query)),
         None,
@@ -275,9 +287,26 @@ def hybrid_search(
         for rank, match in enumerate(matches, start=1):
             result = grouped.setdefault(
                 match["root_id"],
-                {**match, "score": 0.0, "best_rank": rank},
+                {
+                    **match,
+                    "score": 0.0,
+                    "best_rank": rank,
+                    "evidence_timestamp": _evidence_timestamp(match),
+                    "jira_keys": set(),
+                },
             )
             result["score"] += weight / (profile.rrf_k + rank)
+            result["evidence_timestamp"] = max(
+                result["evidence_timestamp"], _evidence_timestamp(match)
+            )
+            if (
+                match["source"] == "jira"
+                and match["matched_field"] == "issue_metadata"
+            ):
+                result["jira_keys"].update(
+                    found.group(1).casefold()
+                    for found in JIRA_KEY.finditer(match["excerpt"])
+                )
             if (match["is_child"] and not result["is_child"]) or (
                 match["is_child"] == result["is_child"]
                 and rank < result["best_rank"]
@@ -288,7 +317,11 @@ def hybrid_search(
                 result["best_rank"] = rank
 
     if profile.freshness_weight and FRESHNESS_QUERY.search(query):
-        recent = sorted(grouped.values(), key=_evidence_timestamp, reverse=True)
+        recent = sorted(
+            grouped.values(),
+            key=lambda item: item["evidence_timestamp"],
+            reverse=True,
+        )
         if recent:
             recent[0]["score"] += profile.freshness_weight / (profile.rrf_k + 1)
 
@@ -311,12 +344,7 @@ def hybrid_search(
         exact_key = jira_key.group(1).casefold()
         exact_tickets = [
             item for item in grouped.values()
-            if item["source"] == "jira"
-            and item["matched_field"] == "issue_metadata"
-            and exact_key in {
-                match.group(1).casefold()
-                for match in JIRA_KEY.finditer(item["excerpt"])
-            }
+            if exact_key in item["jira_keys"]
         ]
         for rank, item in enumerate(exact_tickets, start=1):
             item["score"] += profile.jira_key_weight / (profile.rrf_k + rank)
@@ -340,4 +368,6 @@ def hybrid_search(
         item.pop("root_id", None)
         item.pop("best_rank", None)
         item.pop("is_child", None)
+        item.pop("evidence_timestamp", None)
+        item.pop("jira_keys", None)
     return items

@@ -166,6 +166,102 @@ def test_source_authority_prefers_jira_for_assignee_question(monkeypatch):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("What did Slack say about the ticket status?", "slack"),
+        ("What is the PR status?", "github"),
+        ("What is the policy status?", "confluence"),
+    ],
+)
+def test_authority_uses_the_clearly_named_source_for_mixed_signals(
+    monkeypatch, query, expected
+):
+    hits = [
+        _hit("jira", "jira", source="jira"),
+        _hit("github", "github", source="github"),
+        _hit("confluence", "confluence", source="confluence"),
+        _hit("slack", "slack", source="slack"),
+    ]
+    monkeypatch.setattr(search_module, "keyword_search", lambda *_args: hits)
+
+    items = hybrid_search(
+        None,
+        "user",
+        query,
+        None,
+        profile=SearchProfile(
+            name="candidate", semantic_weight=0, authority_weight=0.05
+        ),
+    )
+
+    assert items[0]["source"] == expected
+
+
+@pytest.mark.unit
+def test_freshness_keeps_the_newest_timestamp_from_every_match_for_a_root(
+    monkeypatch,
+):
+    root_a = UUID("30000000-0000-0000-0000-000000000001")
+    root_b = UUID("30000000-0000-0000-0000-000000000002")
+    hits = [
+        _hit("A", root_a, child=True, matched_updated_at="2026-01-01T00:00:00Z"),
+        _hit("B", root_b, updated_at="2026-02-01T00:00:00Z"),
+        _hit("A", root_a, child=True, matched_updated_at="2026-03-01T00:00:00Z"),
+    ]
+    monkeypatch.setattr(search_module, "keyword_search", lambda *_args: hits)
+    baseline = SearchProfile(name="baseline", semantic_weight=0)
+    candidate = SearchProfile(
+        name="candidate", semantic_weight=0, freshness_weight=0.05
+    )
+
+    before = {
+        item["external_id"]: item["score"]
+        for item in hybrid_search(None, "user", "latest update", None, profile=baseline)
+    }
+    after = {
+        item["external_id"]: item["score"]
+        for item in hybrid_search(None, "user", "latest update", None, profile=candidate)
+    }
+
+    assert after["A"] - before["A"] == pytest.approx(0.05 / 61)
+    assert after["B"] == pytest.approx(before["B"])
+
+
+@pytest.mark.unit
+def test_exact_jira_key_survives_child_snippet_selection(monkeypatch):
+    github_root = UUID("30000000-0000-0000-0000-000000000001")
+    jira_root = UUID("30000000-0000-0000-0000-000000000002")
+    github = _hit(
+        "github-mention", github_root, source="github", excerpt="NIMREL-401"
+    )
+    exact = _hit(
+        "exact-jira", jira_root, field="issue_metadata", excerpt="NIMREL-401"
+    )
+    child = _hit(
+        "exact-jira", jira_root, child=True, field="comment",
+        excerpt="Investigation update",
+    )
+    monkeypatch.setattr(
+        search_module, "keyword_search", lambda *_args: [github, exact]
+    )
+    monkeypatch.setattr(
+        search_module, "semantic_search", lambda *_args: [github, child]
+    )
+
+    items = hybrid_search(
+        None,
+        "user",
+        "NIMREL-401",
+        [1.0],
+        profile=SearchProfile(name="candidate", jira_key_weight=1.0),
+    )
+
+    assert items[0]["external_id"] == "exact-jira"
+    assert items[0]["matched_field"] == "comment"
+
+
+@pytest.mark.unit
 def test_exact_jira_key_beats_mentions_and_partial_keys(monkeypatch):
     mention = _hit(
         "github-mention", "github-mention", source="github",
