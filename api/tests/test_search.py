@@ -357,7 +357,7 @@ def test_personalization_reads_existing_indexed_project_metadata(db, monkeypatch
     assert [item["external_id"] for item in items] == ["COMPANY-1", "VISIBLE-ROOT"]
 
 
-@pytest.mark.unit
+@pytest.mark.search_eval
 def test_focused_enterprise_comparison_has_wins_and_no_protected_losses(monkeypatch):
     cases = {
         "latest project update": [

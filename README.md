@@ -81,12 +81,39 @@ caller; provider calls are added with the API feature.
 ## Verification
 
 ```bash
+# Fast edit loop
+api/.venv/bin/python -m pytest -q -m unit api/tests
+
+# Normal API pull-request checks
 api/.venv/bin/python -m pytest -q -m "unit or integration" api/tests
+
+# Search and grounded-RAG evaluation, without nightly ACL work
+api/.venv/bin/python -m pytest -q \
+  -m "(search_eval or rag_eval) and not nightly" api/tests
+
+# Marker safety check
+api/.venv/bin/python -m pytest --collect-only -q --strict-markers api/tests
+
 (cd web && npm test -- --run)
 (cd web && npm run build)
 docker compose config --quiet
 git diff --check
 ```
+
+The exhaustive ACL group is intentionally separate from normal work:
+
+```bash
+# Manual/nightly ACL gate. Any root or child leak fails.
+api/.venv/bin/python -m pytest -q -m full_acl api/tests
+
+# Complete release/nightly API suite.
+api/.venv/bin/python -m pytest -q api/tests
+```
+
+Do not remove search or RAG evaluation to make CI faster. Pull-request CI runs
+fast API checks and the small non-nightly evaluation. Nightly/manual CI keeps
+the full ACL and complete-suite gates. Evaluation reports are CI artifacts and
+are not committed to the repository.
 
 ## Product and contribution rules
 
