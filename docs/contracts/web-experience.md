@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved by the clean product migration roadmap and the earlier UI decisions.
+Implemented from the clean product migration roadmap and the earlier UI decisions.
 
 ## User outcome
 
