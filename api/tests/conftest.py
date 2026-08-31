@@ -22,6 +22,10 @@ def _test_database_url() -> str:
 
 @pytest.fixture(scope="session")
 def prepared_test_database() -> str:
+    return _prepare_test_database()
+
+
+def _prepare_test_database() -> str:
     url = _test_database_url()
     info = conninfo_to_dict(url)
     database = info["dbname"]
@@ -87,7 +91,9 @@ def _seed(conn: psycopg.Connection) -> None:
           ('30000000-0000-0000-0000-000000000001', 'jira', 'issue', 'COMPANY-1',
            '30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
            'Company document', 'Company body', 'Ada', 'https://example.test/company',
-           'Atlas', '{"provenance":{"tenant":"northstar"}}',
+           'Atlas', '{"acl":{"company_access":true,"group_ids":["engineering"],
+                     "user_ids":["00000000-0000-0000-0000-000000000001"]},
+                     "provenance":{"tenant":"northstar"}}',
            '2026-08-01T01:00:00Z', '2026-08-02T01:00:00Z', '2026-08-03T01:00:00Z'),
           ('30000000-0000-0000-0000-000000000002', 'confluence', 'page', 'DIRECT-1',
            '30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002',
@@ -128,5 +134,39 @@ def _seed(conn: psycopg.Connection) -> None:
                ('[' || array_to_string(array_fill('0'::text, ARRAY[1536]), ',') || ']')::halfvec,
                'test-embedding'
         FROM documents;
+        """
+    )
+
+
+def _seed_malformed_root_chain(conn: psycopg.Connection) -> None:
+    conn.execute(
+        """
+        INSERT INTO documents (
+          id, source, kind, external_id, parent_document_id, root_document_id,
+          permission_set_id, title, body
+        ) VALUES
+          ('30000000-0000-0000-0000-000000000009', 'jira', 'comment',
+           'INTERMEDIATE-ROOT', '30000000-0000-0000-0000-000000000005',
+           '30000000-0000-0000-0000-000000000005',
+           '20000000-0000-0000-0000-000000000001', 'Intermediate', 'Intermediate body'),
+          ('30000000-0000-0000-0000-000000000010', 'jira', 'comment',
+           'CHAIN-CHILD', '30000000-0000-0000-0000-000000000009',
+           '30000000-0000-0000-0000-000000000009',
+           '20000000-0000-0000-0000-000000000001', 'Chain child', 'Chain child body');
+
+        INSERT INTO chunks (
+          source, id, document_id, field, text, chunk_index, content_hash
+        ) VALUES (
+          'jira', 'jira:CHAIN-CHILD:0',
+          '30000000-0000-0000-0000-000000000010',
+          'body', 'Chain child body', 0, 'chain-child-hash'
+        );
+        INSERT INTO sentences (
+          source, chunk_id, sentence_index, sentence, embedding, embedding_model
+        ) VALUES (
+          'jira', 'jira:CHAIN-CHILD:0', 0, 'Chain child body',
+          ('[' || array_to_string(array_fill('0'::text, ARRAY[1536]), ',') || ']')::halfvec,
+          'test-embedding'
+        );
         """
     )

@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from conftest import _test_database_url
+from conftest import _seed_malformed_root_chain, _test_database_url
 from knowledge_browser.db_compat import check_compatibility
 
 
@@ -98,6 +98,109 @@ def test_compatibility_requires_generated_full_text_values(db):
     report = check_compatibility(db)
 
     assert "invalid generated column: chunks.fts" in report.issues
+
+
+def test_compatibility_requires_the_sentence_identity_shape(db):
+    db.execute("ALTER TABLE sentences ALTER COLUMN id DROP IDENTITY")
+
+    report = check_compatibility(db)
+
+    assert "invalid identity column: sentences.id" in report.issues
+
+
+def test_compatibility_requires_the_exact_full_text_expression(db):
+    db.execute("DROP INDEX chunks_fts_idx")
+    db.execute("ALTER TABLE chunks DROP COLUMN fts")
+    db.execute(
+        "ALTER TABLE chunks ADD COLUMN fts tsvector "
+        "GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED"
+    )
+    db.execute("CREATE INDEX chunks_fts_idx ON chunks USING gin (fts)")
+
+    report = check_compatibility(db)
+
+    assert "invalid generated expression: chunks.fts" in report.issues
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_issue"),
+    [
+        (
+            "ALTER TABLE groups ALTER COLUMN name TYPE varchar(100)",
+            "invalid column type: groups.name",
+        ),
+        (
+            "ALTER TABLE groups ALTER COLUMN raw_payload DROP NOT NULL",
+            "invalid column nullability: groups.raw_payload",
+        ),
+    ],
+)
+def test_compatibility_requires_exact_column_types_and_nullability(
+    db, mutation, expected_issue
+):
+    db.execute(mutation)
+
+    report = check_compatibility(db)
+
+    assert expected_issue in report.issues
+
+
+def test_compatibility_rejects_a_constraint_name_on_the_wrong_table(db):
+    db.execute(
+        "ALTER TABLE documents DROP CONSTRAINT documents_root_document_id_fkey"
+    )
+    db.execute(
+        "ALTER TABLE groups ADD CONSTRAINT documents_root_document_id_fkey "
+        "UNIQUE (raw_payload)"
+    )
+
+    report = check_compatibility(db)
+
+    assert "invalid constraint: documents_root_document_id_fkey" in report.issues
+
+
+def test_compatibility_rejects_a_search_index_on_the_wrong_relation(db):
+    db.execute("DROP INDEX chunks_fts_idx")
+    db.execute("CREATE TABLE index_impostor (fts tsvector)")
+    db.execute("CREATE INDEX chunks_fts_idx ON index_impostor USING gin (fts)")
+
+    report = check_compatibility(db)
+
+    assert "invalid index: chunks_fts_idx" in report.issues
+
+
+def test_compatibility_rejects_a_partition_with_the_wrong_source_bound(db):
+    db.execute("DELETE FROM sentences WHERE source = 'confluence'")
+    db.execute("ALTER TABLE chunks DETACH PARTITION confluence_chunks")
+    db.execute("DELETE FROM confluence_chunks")
+    db.execute(
+        "ALTER TABLE chunks ATTACH PARTITION confluence_chunks FOR VALUES IN ('other')"
+    )
+
+    report = check_compatibility(db)
+
+    assert "invalid partition: confluence_chunks" in report.issues
+
+
+def test_compatibility_rejects_a_non_self_rooted_chain(db):
+    _seed_malformed_root_chain(db)
+
+    report = check_compatibility(db)
+
+    assert "documents contain non-canonical roots" in report.issues
+
+
+def test_compatibility_rejects_a_missing_permission_set_relationship(db):
+    db.execute("SET LOCAL session_replication_role = replica")
+    db.execute(
+        "UPDATE documents SET permission_set_id = %s WHERE external_id = 'COMPANY-1'",
+        ("20000000-0000-0000-0000-000000000099",),
+    )
+    db.execute("SET LOCAL session_replication_role = origin")
+
+    report = check_compatibility(db)
+
+    assert "documents contain missing permission sets" in report.issues
 
 
 def test_cli_output_is_aggregate_only_and_never_echoes_credentials(prepared_test_database):

@@ -3,6 +3,7 @@ from uuid import UUID
 
 import pytest
 
+from conftest import _seed_malformed_root_chain
 from knowledge_browser.repository import (
     get_chunk_sentences,
     get_document,
@@ -20,14 +21,22 @@ OTHER_USER = UUID("00000000-0000-0000-0000-000000000004")
 UNKNOWN_USER = UUID("00000000-0000-0000-0000-000000000099")
 
 
-def test_resolve_identity_accepts_email_or_canonical_uuid(db):
-    by_email = resolve_identity(db, "group@example.test")
-    by_id = resolve_identity(db, str(GROUP_USER))
+def test_resolve_identity_by_email(db):
+    identity = resolve_identity(db, "group@example.test")
 
-    assert by_email == by_id
-    assert by_email.id == GROUP_USER
-    assert by_email.email == "group@example.test"
-    assert resolve_identity(db, "missing@example.test") is None
+    assert identity.id == GROUP_USER
+    assert identity.email == "group@example.test"
+
+
+def test_resolve_identity_by_canonical_uuid(db):
+    assert resolve_identity(db, str(GROUP_USER)).id == GROUP_USER
+
+
+@pytest.mark.parametrize(
+    "identity", ["00000000-0000-0000-0000-not-a-uuid", "missing@example.test"]
+)
+def test_resolve_identity_rejects_invalid_uuid_like_and_unknown_values(db, identity):
+    assert resolve_identity(db, identity) is None
 
 
 @pytest.mark.parametrize(
@@ -71,6 +80,15 @@ def test_document_preserves_canonical_content_and_provenance_without_acl_metadat
     }
     assert document.source_created_at.isoformat() == "2026-08-01T01:00:00+00:00"
     assert "permission" not in repr(document).lower()
+    serialized = repr(document.raw_payload).lower()
+    for forbidden in (
+        "acl",
+        "group_ids",
+        "user_ids",
+        "permission_set",
+        "membership",
+    ):
+        assert forbidden not in serialized
 
 
 @pytest.mark.parametrize(
@@ -121,3 +139,24 @@ def test_chunks_and_sentences_are_typed_ordered_and_acl_filtered(db):
 def test_root_child_acl_has_zero_chunk_or_sentence_leaks(db, external_id, chunk_id):
     assert get_document_chunks(db, COMPANY_USER, "jira", external_id) == []
     assert get_chunk_sentences(db, COMPANY_USER, "jira", chunk_id) == []
+
+
+def test_non_self_rooted_chain_fails_closed_for_all_content(db):
+    _seed_malformed_root_chain(db)
+
+    assert get_document(db, COMPANY_USER, "jira", "CHAIN-CHILD") is None
+    assert get_document_chunks(db, COMPANY_USER, "jira", "CHAIN-CHILD") == []
+    assert get_chunk_sentences(db, COMPANY_USER, "jira", "jira:CHAIN-CHILD:0") == []
+
+
+def test_missing_permission_set_relationship_fails_closed(db):
+    db.execute("SET LOCAL session_replication_role = replica")
+    db.execute(
+        "UPDATE documents SET permission_set_id = %s WHERE external_id = 'COMPANY-1'",
+        (UUID("20000000-0000-0000-0000-000000000099"),),
+    )
+    db.execute("SET LOCAL session_replication_role = origin")
+
+    assert get_document(db, COMPANY_USER, "jira", "COMPANY-1") is None
+    assert get_document_chunks(db, COMPANY_USER, "jira", "COMPANY-1") == []
+    assert get_chunk_sentences(db, COMPANY_USER, "jira", "jira:COMPANY-1:0") == []

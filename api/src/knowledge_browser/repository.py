@@ -56,13 +56,17 @@ class Sentence:
 
 
 def resolve_identity(conn, email: str) -> Identity | None:
+    try:
+        identity_id = UUID(email)
+    except ValueError:
+        query = "SELECT id, email, name FROM users WHERE email = %(email)s"
+        parameters = {"email": email}
+    else:
+        query = "SELECT id, email, name FROM users WHERE id = %(identity_id)s"
+        parameters = {"identity_id": identity_id}
     row = conn.execute(
-        """
-        SELECT id, email, name
-        FROM users
-        WHERE email = %(identity)s OR id::text = lower(%(identity)s)
-        """,
-        {"identity": email},
+        query,
+        parameters,
     ).fetchone()
     return Identity(*row) if row else None
 
@@ -76,11 +80,12 @@ def get_document(
                documents.external_id, documents.parent_document_id,
                documents.root_document_id, documents.title, documents.body,
                documents.author, documents.url, documents.container,
-               documents.raw_payload, documents.source_created_at,
+               documents.raw_payload - 'acl', documents.source_created_at,
                documents.source_updated_at, documents.indexed_at
         FROM documents
         JOIN documents root ON root.id = documents.root_document_id
-        WHERE {allowed_document_sql()}
+        WHERE root.root_document_id = root.id
+          AND {allowed_document_sql()}
           AND {allowed_document_sql(document_alias="root")}
           AND documents.source = %(source)s
           AND documents.external_id = %(external_id)s
@@ -100,7 +105,8 @@ def get_document_chunks(
         FROM chunks
         JOIN documents ON documents.id = chunks.document_id
         JOIN documents root ON root.id = documents.root_document_id
-        WHERE {allowed_document_sql()}
+        WHERE root.root_document_id = root.id
+          AND {allowed_document_sql()}
           AND {allowed_document_sql(document_alias="root")}
           AND documents.source = %(source)s
           AND documents.external_id = %(external_id)s
@@ -124,7 +130,8 @@ def get_chunk_sentences(
           ON chunks.source = sentences.source AND chunks.id = sentences.chunk_id
         JOIN documents ON documents.id = chunks.document_id
         JOIN documents root ON root.id = documents.root_document_id
-        WHERE {allowed_document_sql()}
+        WHERE root.root_document_id = root.id
+          AND {allowed_document_sql()}
           AND {allowed_document_sql(document_alias="root")}
           AND sentences.source = %(source)s
           AND sentences.chunk_id = %(chunk_id)s
