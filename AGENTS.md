@@ -27,6 +27,11 @@ native-service search.
 Use `docs/agents/intent-auditor.md` before implementing a search experiment.
 Do not proceed without user direction when it returns `UNCLEAR` or `DRIFT`.
 
+When the user asks to run the eval-driven development loop or improve search
+from recent behavior, read and follow
+`.codex/skills/eval-driven-development/SKILL.md`. A real loop needs a new
+challenger and a new eval; an old run cannot complete it.
+
 ## Worktrees and merging
 
 - Create each task branch from the latest remote `main`.
