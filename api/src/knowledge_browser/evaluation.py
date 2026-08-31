@@ -68,7 +68,7 @@ def evaluate_queries(
     per_query: list[dict[str, Any]] = []
     for query in queries:
         ranked = list(dict.fromkeys(
-            str(item["external_id"])
+            f'{item["source"]}:{item["external_id"]}'
             for item in search(query["as_user"], query["query"], profile)
         ))
         relevant = set(query.get("relevant", []))
@@ -122,6 +122,14 @@ def compare_runs(released: Mapping[str, Any], candidate: Mapping[str, Any]) -> d
         },
         "candidate_forbidden_leaks": candidate["overall"].get("forbidden_leaks", 0),
     }
+
+
+def write_report(path: Path, payload: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def evaluate_grounding(

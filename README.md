@@ -104,7 +104,8 @@ The exhaustive ACL group is intentionally separate from normal work:
 
 ```bash
 # Manual/nightly ACL gate. Any root or child leak fails.
-api/.venv/bin/python -m pytest -q -m full_acl api/tests
+NATIVE_EVAL_DATABASE_URL='postgresql://.../knowledge_search' \
+  api/.venv/bin/python -m pytest -q -m full_acl api/tests
 
 # Complete release/nightly API suite.
 api/.venv/bin/python -m pytest -q api/tests
@@ -114,6 +115,13 @@ Do not remove search or RAG evaluation to make CI faster. Pull-request CI runs
 fast API checks and the small non-nightly evaluation. Nightly/manual CI keeps
 the full ACL and complete-suite gates. Evaluation reports are CI artifacts and
 are not committed to the repository.
+
+The native ACL job uses the committed 603-query text projection and every user
+in the configured read-only database. This is 60,300 query/user pairs for the
+current 100-user corpus. The job skips when its protected database secret is
+not configured; a skipped job is not release proof. Never point it at a write
+database. It starts a read-only transaction and requires zero root and child
+leaks.
 
 ## Product and contribution rules
 

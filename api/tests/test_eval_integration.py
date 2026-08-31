@@ -1,11 +1,17 @@
+import os
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 
 from knowledge_browser.eval_entitlement import allowed_documents, entitlement_snapshot
-from knowledge_browser.evaluation import evaluate_queries, load_golden_queries
-from knowledge_browser.profiles import load_profile
+from knowledge_browser.evaluation import (
+    compare_runs,
+    evaluate_queries,
+    load_golden_queries,
+    write_report,
+)
+from knowledge_browser.profiles import SearchProfile, load_profile
 from knowledge_browser.search import hybrid_search, keyword_search
 
 
@@ -43,12 +49,25 @@ def test_committed_golden_queries_have_no_forbidden_search_leaks(db):
     assert run["overall"]["recall@10"] == pytest.approx(0.75)
     assert run["overall"]["forbidden_leaks"] == 0
 
+    report_path = os.environ.get("EVALUATION_REPORT_PATH")
+    if report_path:
+        baseline = SearchProfile(name="baseline")
+        baseline_run = evaluate_queries(
+            queries,
+            lambda user, query, _profile: hybrid_search(
+                db, UUID(user), query, None, profile=baseline
+            ),
+            profile=baseline.name,
+        )
+        write_report(Path(report_path), {
+            "released": run,
+            "comparison": compare_runs(baseline_run, run),
+        })
+
 
 @pytest.mark.search_eval
-@pytest.mark.full_acl
-@pytest.mark.nightly
 def test_configured_corpus_has_zero_root_and_child_acl_leaks(db):
-    """Exhaustive for the configured fixture; native corpus uses the same group."""
+    """Fast fixture smoke; the native matrix is a separate full_acl test."""
     memberships, documents = entitlement_snapshot(db)
     terms = ["Company", "Direct", "Group", "Missing", "Visible", "Hidden"]
     leaks = []

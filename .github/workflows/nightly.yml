@@ -24,6 +24,7 @@ jobs:
           --health-retries 15
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/knowledge_browser_nightly_test
+      NATIVE_EVAL_DATABASE_URL: ${{ secrets.NATIVE_EVAL_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,7 +39,7 @@ jobs:
           --junitxml="${{ runner.temp }}/full-acl.xml" api/tests
       - name: Complete API suite
         run: >-
-          python -m pytest -q
+          python -m pytest -q -m "not full_acl"
           --junitxml="${{ runner.temp }}/full-api.xml" api/tests
       - uses: actions/upload-artifact@v4
         if: always()

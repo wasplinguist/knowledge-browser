@@ -3,25 +3,25 @@
     "id": "known-company-document",
     "as_user": "00000000-0000-0000-0000-000000000001",
     "query": "Company",
-    "relevant": ["COMPANY-1"],
-    "grades": {"COMPANY-1": 2},
-    "must_not_appear": ["HIDDEN-ROOT", "VISIBLE-CHILD", "HIDDEN-CHILD"]
+    "relevant": ["jira:COMPANY-1"],
+    "grades": {"jira:COMPANY-1": 2},
+    "must_not_appear": ["jira:HIDDEN-ROOT", "jira:VISIBLE-CHILD", "jira:HIDDEN-CHILD"]
   },
   {
     "id": "direct-document-allowed",
     "as_user": "00000000-0000-0000-0000-000000000002",
     "query": "Direct",
-    "relevant": ["DIRECT-1"],
-    "grades": {"DIRECT-1": 2},
-    "must_not_appear": ["GROUP-1", "HIDDEN-ROOT"]
+    "relevant": ["confluence:DIRECT-1"],
+    "grades": {"confluence:DIRECT-1": 2},
+    "must_not_appear": ["slack:GROUP-1", "jira:HIDDEN-ROOT"]
   },
   {
     "id": "group-document-allowed",
     "as_user": "00000000-0000-0000-0000-000000000003",
     "query": "Group",
-    "relevant": ["GROUP-1"],
-    "grades": {"GROUP-1": 2},
-    "must_not_appear": ["DIRECT-1", "HIDDEN-ROOT"]
+    "relevant": ["slack:GROUP-1"],
+    "grades": {"slack:GROUP-1": 2},
+    "must_not_appear": ["confluence:DIRECT-1", "jira:HIDDEN-ROOT"]
   },
   {
     "id": "group-document-denied",
@@ -29,6 +29,6 @@
     "query": "Group",
     "relevant": [],
     "grades": {},
-    "must_not_appear": ["GROUP-1", "HIDDEN-ROOT"]
+    "must_not_appear": ["slack:GROUP-1", "jira:HIDDEN-ROOT"]
   }
 ]

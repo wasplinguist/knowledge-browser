@@ -27,7 +27,8 @@ or permission regressions.
 
 - Running the exhaustive native-corpus ACL scan in this feature session.
 - Importing the old six-megabyte golden file, old generated corpus, or saved
-  evaluation reports.
+  evaluation reports. The small final query-text projection used by the native
+  ACL gate is retained because ACL evaluation needs queries, not old scores.
 - Claiming small fixtures beat Jira, Slack, Confluence, or GitHub search.
 - Changing search, ranking, ACL SQL, schema, ingestion, or answer behavior.
 - Paid model or embedding calls in tests.
@@ -48,7 +49,8 @@ also belongs to `search_eval` and `nightly`.
 
 ## Evaluation contract
 
-Each golden query has a stable ID, user, query text, relevant external IDs,
+Each golden query has a stable ID, user, query text, relevant `source:external`
+document IDs,
 optional relevance grades, and IDs that must never appear. Evaluation reports
 MRR@10, nDCG@10, recall@10, and forbidden-result leaks. Comparison reports
 per-query wins, losses, unchanged cases, and overall metric deltas.

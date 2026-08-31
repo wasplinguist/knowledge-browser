@@ -78,6 +78,7 @@ jobs:
           --health-retries 15
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/knowledge_browser_eval_test
+      EVALUATION_REPORT_PATH: ${{ runner.temp }}/evaluation.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -93,7 +94,9 @@ jobs:
         if: always()
         with:
           name: evaluation-results
-          path: ${{ runner.temp }}/evaluation.xml
+          path: |
+            ${{ runner.temp }}/evaluation.xml
+            ${{ runner.temp }}/evaluation.json
 
   web:
     runs-on: ubuntu-latest

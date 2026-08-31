@@ -1,6 +1,7 @@
 """Independent ACL oracle for evaluation; never imports production ACL SQL."""
 
 from collections.abc import Mapping
+from collections.abc import Callable, Sequence
 from typing import Any
 from uuid import UUID
 
@@ -70,3 +71,29 @@ def entitlement_snapshot(conn) -> tuple[
         ).fetchall()
     }
     return memberships, documents
+
+
+def audit_acl(
+    memberships: Mapping[UUID, set[UUID]],
+    documents: Mapping[str, Mapping[str, Any] | None],
+    queries: Sequence[str],
+    search: Callable[[UUID, str], Sequence[Mapping[str, Any]]],
+) -> dict[str, Any]:
+    root_leaks: list[dict[str, str]] = []
+    child_leaks: list[dict[str, str]] = []
+    for user_id, group_ids in memberships.items():
+        expected = allowed_documents(documents, user_id, group_ids)
+        for query in queries:
+            for item in search(user_id, query):
+                root = f'{item["source"]}:{item["external_id"]}'
+                child = f'{item["source"]}:{item["matched_external_id"]}'
+                common = {"user_id": str(user_id), "query": query}
+                if root not in expected:
+                    root_leaks.append({**common, "document": root})
+                if child not in expected:
+                    child_leaks.append({**common, "document": child})
+    return {
+        "pairs": len(memberships) * len(queries),
+        "root_leaks": root_leaks,
+        "child_leaks": child_leaks,
+    }

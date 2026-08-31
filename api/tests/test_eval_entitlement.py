@@ -2,7 +2,7 @@ from uuid import UUID
 
 import pytest
 
-from knowledge_browser.eval_entitlement import allowed_documents, is_visible
+from knowledge_browser.eval_entitlement import audit_acl, allowed_documents, is_visible
 
 
 pytestmark = pytest.mark.unit
@@ -36,3 +36,32 @@ def test_independent_entitlement_builds_allowed_document_sets():
 
     assert allowed_documents(documents, USER, {ENG}) == {"company", "direct", "group"}
     assert allowed_documents(documents, OTHER, set()) == {"company"}
+
+
+def test_acl_audit_counts_pairs_and_reports_root_and_child_leaks():
+    memberships = {USER: {ENG}, OTHER: set()}
+    documents = {
+        "jira:allowed": {"visibility": "company"},
+        "jira:secret": {"visibility": "restricted", "users": {USER}},
+    }
+
+    result = audit_acl(
+        memberships,
+        documents,
+        ["query"],
+        lambda user, _query: [{
+            "source": "jira",
+            "external_id": "allowed",
+            "matched_external_id": "secret",
+        }] if user == OTHER else [],
+    )
+
+    assert result == {
+        "pairs": 2,
+        "root_leaks": [],
+        "child_leaks": [{
+            "user_id": str(OTHER),
+            "query": "query",
+            "document": "jira:secret",
+        }],
+    }
