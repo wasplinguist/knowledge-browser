@@ -115,4 +115,3 @@ def test_retrieval_rejects_a_non_canonical_root_chain(db):
     user = UUID("00000000-0000-0000-0000-000000000001")
 
     assert keyword_search(db, user, "Chain child") == []
-

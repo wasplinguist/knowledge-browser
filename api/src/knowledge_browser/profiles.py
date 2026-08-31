@@ -73,4 +73,3 @@ def expand_query(query: str, profile: SearchProfile) -> str:
         ),
         query,
     )
-

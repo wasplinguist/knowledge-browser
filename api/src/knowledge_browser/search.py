@@ -192,4 +192,3 @@ def hybrid_search(
         item.pop("best_rank", None)
         item.pop("is_child", None)
     return items
-
