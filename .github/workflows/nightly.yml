@@ -25,6 +25,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/knowledge_browser_nightly_test
       NATIVE_EVAL_DATABASE_URL: ${{ secrets.NATIVE_EVAL_DATABASE_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,16 +34,25 @@ jobs:
           cache: pip
           cache-dependency-path: api/pyproject.toml
       - run: python -m pip install -e './api[dev]'
+      - name: Full retrieval gate
+        if: env.NATIVE_EVAL_DATABASE_URL != '' && env.OPENAI_API_KEY != ''
+        run: >-
+          python -m pytest -q -s -m full_retrieval
+          --junitxml="${{ runner.temp }}/full-retrieval.xml" api/tests
+        env:
+          EVALUATION_REPORT_PATH: ${{ runner.temp }}/full-retrieval.json
       - name: Full ACL gate
         run: >-
           python -m pytest -q -m full_acl
           --junitxml="${{ runner.temp }}/full-acl.xml" api/tests
       - name: Complete API suite
         run: >-
-          python -m pytest -q -m "not full_acl"
+          python -m pytest -q -m "not (full_acl or full_retrieval)"
           --junitxml="${{ runner.temp }}/full-api.xml" api/tests
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: nightly-safety-results
-          path: ${{ runner.temp }}/*.xml
+          path: |
+            ${{ runner.temp }}/*.xml
+            ${{ runner.temp }}/full-retrieval.json

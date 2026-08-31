@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
+import knowledge_browser.main as main_module
 from knowledge_browser.main import create_app
 
 
@@ -183,6 +184,36 @@ def test_answer_route_uses_demo_identity_and_returns_grounded_shape(db):
     assert response.json()["mode"] == "fast"
     assert response.json()["evidence_status"] == "incomplete"
     assert response.json()["trace"] == []
+
+
+def test_answer_route_uses_lazy_runtime_provider_when_key_exists(db, monkeypatch):
+    class Responses:
+        def create(self, **_request):
+            return SimpleNamespace(
+                id="final", output=[], output_text=json.dumps({
+                    "answer": "No opened evidence yet.",
+                    "evidence_status": "incomplete",
+                    "citations": [],
+                    "conflicts": [],
+                    "missing_information": [],
+                    "follow_ups": [],
+                }),
+            )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        main_module, "_default_answer_client",
+        lambda: SimpleNamespace(responses=Responses()),
+    )
+
+    response = _client(db).post(
+        "/api/answer",
+        headers={"X-Demo-User-Id": COMPANY_USER},
+        json={"question": "Who owns Company?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["evidence_status"] == "incomplete"
 
 
 def test_answer_route_rejects_unknown_mode(db):

@@ -84,6 +84,42 @@ it('shows the answer and only one provenance for one document', async () => {
   expect(screen.getAllByRole('button', { name: /Pool timeout/ })).toHaveLength(1)
 })
 
+it('shows structured evidence and opens inline citations in the local panel', async () => {
+  vi.mocked(fetch).mockImplementation((input) => {
+    const url = String(input)
+    if (url.endsWith('/api/demo-users')) return json(users)
+    if (url.endsWith('/api/answer')) return json({
+      answer: 'The pool is saturated [1].',
+      evidence_status: 'incomplete',
+      citations: [{
+        chunk_id: 'jira:ATLAS-231:description:0', source: 'jira',
+        external_id: 'ATLAS-231', title: 'Pool timeout',
+        url: 'https://broken.example/ATLAS-231',
+      }],
+      conflicts: [],
+      missing_information: ['The final recovery time is not recorded.'],
+      follow_ups: ['Who owns the remaining work?'],
+    })
+    if (url.endsWith('/api/documents/jira/ATLAS-231')) return json({
+      source: 'jira', external_id: 'ATLAS-231', kind: 'issue', title: 'Pool timeout',
+      author: 'Maya', container: 'Atlas', payload: { description: 'Pool exhausted.' },
+    })
+    return json(result)
+  })
+  await searchFor()
+
+  expect(await screen.findByText('Some information may be missing')).toBeVisible()
+  expect(screen.getByText('The final recovery time is not recorded.')).toBeVisible()
+  const inline = screen.getByRole('button', { name: 'Citation 1: Pool timeout' })
+  expect(inline).not.toHaveAttribute('href')
+  await userEvent.click(inline)
+  expect(await screen.findByRole('dialog')).toBeVisible()
+  await userEvent.keyboard('{Escape}')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Who owns the remaining work?' }))
+  expect(screen.getByRole('searchbox')).toHaveValue('Who owns the remaining work?')
+})
+
 it('opens a local document panel, records the click, and returns focus on close', async () => {
   await searchFor()
   const resultButton = await screen.findByRole('button', { name: 'Investigate pool timeout' })

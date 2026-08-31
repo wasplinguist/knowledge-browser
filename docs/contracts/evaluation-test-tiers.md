@@ -15,7 +15,8 @@ or permission regressions.
 - Register strict pytest groups for unit, integration, search evaluation, RAG
   evaluation, full ACL, and nightly checks.
 - Require every API test to have exactly one primary group.
-- Add a small committed golden-query set for deterministic pull-request checks.
+- Add a small committed golden-query set for deterministic pull-request checks
+  and keep the full 603-query definitions for manual/nightly native evaluation.
 - Add pure retrieval metrics and released-versus-candidate comparison.
 - Add an entitlement oracle that is independent from production ACL SQL.
 - Add focused search and RAG evaluation tests with fake providers only.
@@ -26,9 +27,8 @@ or permission regressions.
 ## Non-goals
 
 - Running the exhaustive native-corpus ACL scan in this feature session.
-- Importing the old six-megabyte golden file, old generated corpus, or saved
-  evaluation reports. The small final query-text projection used by the native
-  ACL gate is retained because ACL evaluation needs queries, not old scores.
+- Importing the old generated corpus or saved evaluation reports. The user later
+  approved importing the latest full query definitions, but not saved scores.
 - Claiming small fixtures beat Jira, Slack, Confluence, or GitHub search.
 - Changing search, ranking, ACL SQL, schema, ingestion, or answer behavior.
 - Paid model or embedding calls in tests.
@@ -36,7 +36,7 @@ or permission regressions.
 ## Test groups
 
 `unit`, `integration`, `search_eval`, and `rag_eval` are primary groups. Every
-test has exactly one. `full_acl` and `nightly` are overlays; a full ACL test
+test has exactly one. `full_retrieval`, `full_acl`, and `nightly` are overlays; a full ACL test
 also belongs to `search_eval` and `nightly`.
 
 - `unit`: isolated behavior; no PostgreSQL, network, or large corpus.
@@ -44,14 +44,15 @@ also belongs to `search_eval` and `nightly`.
 - `search_eval`: retrieval metrics, golden queries, comparison, and search
   quality gates.
 - `rag_eval`: grounded-answer evidence and citation quality using fake clients.
+- `full_retrieval`: complete 603-query native retrieval quality and latency.
 - `full_acl`: exhaustive configured-corpus entitlement/search comparison.
 - `nightly`: too slow for normal pull requests.
 
 ## Evaluation contract
 
-Each golden query has a stable ID, user, query text, relevant `source:external`
-document IDs,
-optional relevance grades, and IDs that must never appear. Evaluation reports
+Each golden query has a stable ID, user, query text, relevant document IDs,
+optional source-qualified IDs for small fixtures, optional relevance grades,
+and IDs that must never appear. Evaluation reports
 MRR@10, nDCG@10, recall@10, and forbidden-result leaks. Comparison reports
 per-query wins, losses, unchanged cases, and overall metric deltas.
 

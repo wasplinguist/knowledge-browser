@@ -21,15 +21,22 @@ export type SearchResponse = {
   profile: string
 }
 export type Citation = {
+  chunk_id?: string
   source?: Source
   external_id?: string
   title?: string
   url?: string | null
+  excerpt?: string
+  field?: string
 }
+export type EvidenceStatus = 'complete' | 'incomplete' | 'conflicting'
 export type AnswerResponse = {
   answer: string | null
   citations: Citation[]
   follow_ups: string[]
+  evidence_status?: EvidenceStatus
+  conflicts?: Array<{ description: string; citations: string[] }>
+  missing_information?: string[]
   error?: { code: string; message: string }
 }
 export type ApiError = { error: { code: string; message: string } }

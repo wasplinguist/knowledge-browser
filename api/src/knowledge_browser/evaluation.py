@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import json
 import math
 from pathlib import Path
+import time
 from typing import Any
 
 
@@ -51,7 +52,7 @@ def load_golden_queries(path: Path) -> list[dict[str, Any]]:
             raise ValueError("every golden query must be an object")
         required = ("id", "as_user", "query", "relevant")
         if any(not query.get(field) for field in required[:3]) or not isinstance(
-            query.get("relevant"), list
+            query.get("relevant"), (list, dict)
         ):
             raise ValueError("golden query fields are invalid")
         ids.append(query["id"])
@@ -66,13 +67,25 @@ def evaluate_queries(
     profile: str,
 ) -> dict[str, Any]:
     per_query: list[dict[str, Any]] = []
+    latencies: list[float] = []
     for query in queries:
+        started_at = time.perf_counter()
+        results = search(query["as_user"], query["query"], profile)
+        latencies.append((time.perf_counter() - started_at) * 1000)
+        relevance = query.get("relevant", [])
+        uses_external_ids = isinstance(relevance, Mapping)
         ranked = list(dict.fromkeys(
-            f'{item["source"]}:{item["external_id"]}'
-            for item in search(query["as_user"], query["query"], profile)
+            item["external_id"] if uses_external_ids
+            else f'{item["source"]}:{item["external_id"]}'
+            for item in results
         ))
-        relevant = set(query.get("relevant", []))
-        grades = query.get("grades") or {value: 1 for value in relevant}
+        relevant = set(relevance)
+        grades = (
+            {key: float(value) for key, value in relevance.items()}
+            if uses_external_ids else query.get("grades") or {
+                value: 1 for value in relevant
+            }
+        )
         forbidden = sorted(set(ranked).intersection(query.get("must_not_appear", [])))
         per_query.append({
             "id": query["id"],
@@ -86,6 +99,10 @@ def evaluate_queries(
         })
 
     metric_names = ("mrr@10", "ndcg@10", "recall@10")
+    ordered_latency = sorted(latencies)
+    percentile = lambda fraction: ordered_latency[
+        max(0, math.ceil(len(ordered_latency) * fraction) - 1)
+    ] if ordered_latency else 0.0
     return {
         "profile": profile,
         "query_count": len(per_query),
@@ -95,6 +112,11 @@ def evaluate_queries(
                 for name in metric_names
             },
             "forbidden_leaks": sum(len(row["forbidden"]) for row in per_query),
+        },
+        "latency_ms": {
+            "mean": _mean(latencies),
+            "p50": percentile(0.50),
+            "p95": percentile(0.95),
         },
         "per_query": per_query,
     }

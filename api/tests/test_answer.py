@@ -95,6 +95,63 @@ def test_answer_starts_with_shared_hybrid_results_and_cites_opened_evidence(monk
     assert answer["evidence_status"] == "complete"
     assert answer["citations"][0]["chunk_id"] == hit["chunk_id"]
     assert "Queue incident" in responses.requests[0]["input"][0]["content"]
+    assert "Use the initial allowed hybrid results first" in responses.requests[0]["instructions"]
+    assert "only when they do not contain enough evidence" in responses.requests[0]["instructions"]
+
+
+def test_every_answer_request_uses_strict_structured_output(monkeypatch):
+    hit = _result()
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])
+    monkeypatch.setattr(
+        answer_module, "read_chunk", lambda *_args: {**hit, "text": hit["excerpt"]}
+    )
+    responses = Responses([
+        _call("read", "read_chunk", {"source": "jira", "chunk_id": hit["chunk_id"]}),
+        _final({
+            "answer": "The queue was saturated [1].",
+            "evidence_status": "complete",
+            "citations": [hit["chunk_id"]],
+            "conflicts": [],
+            "missing_information": [],
+            "follow_ups": [],
+        }),
+    ])
+
+    answer_module.answer_question(
+        None, "user", "Why was it slow?", lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    for request in responses.requests:
+        output_format = request["text"]["format"]
+        assert output_format["type"] == "json_schema"
+        assert output_format["strict"] is True
+        assert set(output_format["schema"]["required"]) == {
+            "answer", "evidence_status", "citations", "conflicts",
+            "missing_information", "follow_ups",
+        }
+        assert output_format["schema"]["additionalProperties"] is False
+
+
+def test_answer_model_uses_environment_override(monkeypatch):
+    monkeypatch.setenv("ANSWER_MODEL", "configured-answer-model")
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [])
+    responses = Responses([_final({
+        "answer": "No evidence.",
+        "evidence_status": "incomplete",
+        "citations": [],
+        "conflicts": [],
+        "missing_information": [],
+        "follow_ups": [],
+    })])
+
+    result = answer_module.answer_question(
+        None, "user", "What happened?", lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    assert responses.requests[0]["model"] == "configured-answer-model"
+    assert result["execution"]["model"] == "configured-answer-model"
 
 
 def test_unopened_citation_is_removed_and_complete_is_downgraded(monkeypatch):

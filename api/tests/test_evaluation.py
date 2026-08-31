@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,7 @@ from knowledge_browser.evaluation import (
 
 
 pytestmark = pytest.mark.search_eval
+FULL_GOLDEN = Path(__file__).parents[2] / "eval" / "queries.json"
 
 
 def test_ranking_metrics_measure_recall_first_hit_and_order():
@@ -72,6 +74,41 @@ def test_query_evaluation_reports_metrics_and_forbidden_leaks():
     assert run["overall"]["recall@10"] == 0.5
     assert run["overall"]["forbidden_leaks"] == 1
     assert run["per_query"][0]["forbidden"] == ["slack:SECRET"]
+
+
+def test_latest_full_golden_queries_are_committed_and_supported():
+    queries = load_golden_queries(FULL_GOLDEN)
+
+    assert len(queries) == 603
+    assert len({query["id"] for query in queries}) == 603
+    assert {query["type"] for query in queries} == {
+        "alias", "lexical", "multi_hop", "negative", "personalized",
+        "semantic", "temporal",
+    }
+    assert all(isinstance(query["relevant"], dict) for query in queries)
+
+
+def test_evaluate_queries_accepts_full_corpus_relevance_grades():
+    queries = [{
+        "id": "full-format",
+        "as_user": "reader@example.test",
+        "query": "Nimbus status",
+        "relevant": {"artifact-1": 3, "artifact-2": 1},
+        "must_not_appear": ["artifact-hidden"],
+    }]
+
+    run = evaluate_queries(
+        queries,
+        lambda *_args: [
+            {"source": "jira", "external_id": "artifact-1"},
+            {"source": "slack", "external_id": "artifact-hidden"},
+        ],
+        profile="released",
+    )
+
+    assert run["overall"]["mrr@10"] == 1
+    assert run["overall"]["forbidden_leaks"] == 1
+    assert run["latency_ms"]["p50"] >= 0
 
 
 def test_query_evaluation_keeps_same_external_id_from_two_sources_distinct():
