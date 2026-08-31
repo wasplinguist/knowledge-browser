@@ -16,6 +16,14 @@ def test_profile_rejects_invalid_retrieval_settings():
         SearchProfile(name="bad", keyword_limit=0)
     with pytest.raises(ValueError, match="retrieval weight"):
         SearchProfile(name="bad", keyword_weight=0, semantic_weight=0)
+    for field in (
+        "freshness_weight",
+        "authority_weight",
+        "jira_key_weight",
+        "personalization_weight",
+    ):
+        with pytest.raises(ValueError, match=field):
+            SearchProfile(name="bad", **{field: True})
 
 
 def test_profile_loads_from_json(tmp_path):
@@ -52,4 +60,10 @@ def test_released_profile_is_loadable():
 
     profile = load_profile(path)
 
-    assert profile == SearchProfile(name="released")
+    assert profile == SearchProfile(
+        name="released",
+        freshness_weight=0.05,
+        authority_weight=0.05,
+        jira_key_weight=1.0,
+        personalization_weight=0.05,
+    )
