@@ -5,7 +5,12 @@ import pytest
 import knowledge_browser.search as search_module
 from conftest import _seed_malformed_root_chain
 from knowledge_browser.profiles import SearchProfile
-from knowledge_browser.search import hybrid_search, keyword_search, semantic_search
+from knowledge_browser.search import (
+    hybrid_search,
+    keyword_search,
+    read_chunk,
+    semantic_search,
+)
 
 
 def _hit(external_id, root_id, *, child=False, chunk_id=None):
@@ -164,3 +169,17 @@ def test_retrieval_rejects_a_non_canonical_root_chain(db):
     assert "CHAIN-CHILD" not in {
         item["matched_external_id"] for item in semantic_items
     }
+
+
+@pytest.mark.integration
+def test_read_chunk_returns_full_text_only_when_child_and_root_are_allowed(db):
+    company_user = UUID("00000000-0000-0000-0000-000000000001")
+
+    allowed = read_chunk(db, company_user, "jira", "jira:COMPANY-1:0")
+    hidden_root = read_chunk(db, company_user, "jira", "jira:VISIBLE-CHILD:0")
+    hidden_child = read_chunk(db, company_user, "jira", "jira:HIDDEN-CHILD:0")
+
+    assert allowed["text"] == "Company body"
+    assert allowed["external_id"] == "COMPANY-1"
+    assert hidden_root is None
+    assert hidden_child is None

@@ -18,6 +18,7 @@ def test_only_approved_feature_routes_are_exposed():
     app = create_app()
 
     assert sorted(route.path for route in app.routes) == [
+        "/api/answer",
         "/api/demo-users",
         "/api/health",
         "/api/search",
