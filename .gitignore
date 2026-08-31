@@ -3,6 +3,7 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 node_modules/
 *.tsbuildinfo
 dist/
@@ -12,4 +13,5 @@ dist/
 coverage.xml
 postgres-data/
 .worktrees/
+.superpowers/
 data/.cache/
