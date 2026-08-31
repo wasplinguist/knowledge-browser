@@ -24,6 +24,7 @@
 ## File Map
 
 ```text
+.gitignore                             generated local artifacts
 docs/superpowers/plans/2026-08-31-runtime-foundation.md implementation plan
 .github/workflows/ci.yml              pull-request verification
 compose.yaml                          local PostgreSQL/pgvector service
