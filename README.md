@@ -5,9 +5,10 @@ through approved feature contracts.
 
 ## Current scope
 
-The product can read the existing PostgreSQL 17/pgvector database through
-ACL-safe repository interfaces and can verify that database before retrieval is
-enabled. Search, RAG, and UI behavior arrive in later contract-driven PRs.
+The product can read and verify the existing PostgreSQL 17/pgvector database.
+It also supports ACL-safe keyword and semantic retrieval, alias expansion,
+reciprocal rank fusion, and one result per root document. Search API, RAG, and
+UI behavior arrive in later contract-driven PRs.
 
 ## Requirements
 
@@ -60,6 +61,10 @@ DATABASE_URL='postgresql://postgres:postgres@localhost:5432/knowledge_search' \
 
 The command is read-only and prints compatibility status plus aggregate counts;
 it does not print credentials or company content.
+
+The released retrieval settings are stored in
+`search/profiles/released.json`. Retrieval accepts a query embedding from its
+caller; provider calls are added with the API feature.
 
 ## Verification
 
