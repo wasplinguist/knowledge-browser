@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from conftest import test_database_url
+from conftest import _test_database_url
 from knowledge_browser.db_compat import check_compatibility
 
 
@@ -42,6 +42,33 @@ def test_compatibility_fails_for_a_missing_required_index(db):
     assert report.issues == ("missing index: sentences_embedding_idx",)
 
 
+@pytest.mark.parametrize(
+    ("drop_sql", "create_sql", "expected_issue"),
+    [
+        (
+            "DROP INDEX chunks_fts_idx",
+            "CREATE INDEX chunks_fts_idx ON chunks USING gin (metadata)",
+            "invalid index: chunks_fts_idx",
+        ),
+        (
+            "DROP INDEX sentences_embedding_idx",
+            "CREATE INDEX sentences_embedding_idx ON sentences "
+            "USING hnsw (embedding halfvec_l2_ops)",
+            "invalid index: sentences_embedding_idx",
+        ),
+    ],
+)
+def test_compatibility_requires_exact_search_index_columns_and_operator_classes(
+    db, drop_sql, create_sql, expected_issue
+):
+    db.execute(drop_sql)
+    db.execute(create_sql)
+
+    report = check_compatibility(db)
+
+    assert expected_issue in report.issues
+
+
 def test_compatibility_fails_for_a_missing_embedding(db):
     db.execute(
         "UPDATE sentences SET embedding = NULL "
@@ -54,11 +81,32 @@ def test_compatibility_fails_for_a_missing_embedding(db):
     assert "sentences contain missing embeddings" in report.issues
 
 
+def test_compatibility_requires_halfvec_1536_embeddings(db):
+    db.execute("DROP INDEX sentences_embedding_idx")
+    db.execute("UPDATE sentences SET embedding = NULL")
+    db.execute("ALTER TABLE sentences ALTER COLUMN embedding TYPE halfvec(2)")
+
+    report = check_compatibility(db)
+
+    assert "invalid column type: sentences.embedding" in report.issues
+
+
+def test_compatibility_requires_generated_full_text_values(db):
+    db.execute("DROP INDEX chunks_fts_idx")
+    db.execute("ALTER TABLE chunks ALTER COLUMN fts DROP EXPRESSION")
+
+    report = check_compatibility(db)
+
+    assert "invalid generated column: chunks.fts" in report.issues
+
+
 def test_cli_output_is_aggregate_only_and_never_echoes_credentials(prepared_test_database):
     secret = "do-not-print-this-password"
     env = {
         **os.environ,
-        "DATABASE_URL": test_database_url().replace("postgres:postgres", f"postgres:{secret}"),
+        "DATABASE_URL": _test_database_url().replace(
+            "postgres:postgres", f"postgres:{secret}"
+        ),
         "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
     }
 
@@ -84,4 +132,4 @@ def test_test_database_guard_rejects_any_database_without_test(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="dedicated _test database"):
-        test_database_url()
+        _test_database_url()

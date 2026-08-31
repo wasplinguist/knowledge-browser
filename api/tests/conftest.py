@@ -12,7 +12,7 @@ DEFAULT_TEST_DATABASE_URL = (
 )
 
 
-def test_database_url() -> str:
+def _test_database_url() -> str:
     url = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
     database = conninfo_to_dict(url).get("dbname", "")
     if "_test" not in database.lower():
@@ -22,7 +22,7 @@ def test_database_url() -> str:
 
 @pytest.fixture(scope="session")
 def prepared_test_database() -> str:
-    url = test_database_url()
+    url = _test_database_url()
     info = conninfo_to_dict(url)
     database = info["dbname"]
     admin_info = {**info, "dbname": "postgres"}
