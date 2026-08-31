@@ -132,7 +132,7 @@ DATABASE_URL='postgresql://...' api/.venv/bin/python scripts/run_eval_loop.py \
 ```
 
 After one evidence-backed challenger has an `ALIGNED` intent audit and complete
-manifest, run a new comparison:
+manifest, commit the code and run a new comparison from a clean worktree:
 
 ```bash
 DATABASE_URL='postgresql://...' api/.venv/bin/python scripts/run_eval_loop.py \

@@ -26,6 +26,15 @@ def _manifest(root: Path) -> Path:
         "since": "2026-08-25T00:00:00+00:00",
         "until": "2026-09-01T00:00:00+00:00",
         "total_searches": 3,
+        "unique_queries": 2,
+        "no_result_rate": 0.5,
+        "click_through_rate": 0.5,
+        "p50_duration_ms": 20,
+        "p95_duration_ms": 40,
+        "top_queries": [{"query": "NREL", "searches": 2}],
+        "top_no_result_queries": [{"query": "NREL", "searches": 2}],
+        "top_unclicked_queries": [{"query": "NREL", "searches": 2}],
+        "reformulations": [],
         "excluded_profiles": ["demo-loop-v1"],
     }))
     (root / "search" / "profiles" / "released.json").write_text(
@@ -123,6 +132,31 @@ def test_manifest_rejects_stale_empty_or_malformed_behavior_evidence(tmp_path):
         validate_manifest(path, tmp_path, now=lambda: NOW)
 
 
+def test_manifest_requires_failure_evidence_and_a_complete_hypothesis_chain(tmp_path):
+    path = _manifest(tmp_path)
+    evidence_path = tmp_path / "evidence" / "weekly.json"
+    evidence = json.loads(evidence_path.read_text())
+    for field in ("top_no_result_queries", "top_unclicked_queries", "reformulations"):
+        evidence[field] = []
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="failure or reformulation"):
+        validate_manifest(path, tmp_path, now=lambda: NOW)
+
+    path = _manifest(tmp_path / "empty-insight")
+    manifest = json.loads(path.read_text())
+    manifest["hypothesis"] = "  "
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="hypothesis"):
+        validate_manifest(path, tmp_path / "empty-insight", now=lambda: NOW)
+
+    path = _manifest(tmp_path / "bad-golden-change")
+    manifest = json.loads(path.read_text())
+    manifest["golden_changes"] = [{"query_id": "q1", "change": "new label"}]
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="golden change"):
+        validate_manifest(path, tmp_path / "bad-golden-change", now=lambda: NOW)
+
+
 def test_manifest_requires_released_baseline_and_real_behavior_change(tmp_path):
     path = _manifest(tmp_path)
     data = json.loads(path.read_text())
@@ -202,6 +236,7 @@ def test_run_requires_new_output_and_writes_hashed_json_and_easy_html(tmp_path):
     html = report.read_text()
     assert payload["decision"] == "recommend-release-gate"
     assert payload["provenance"]["git_sha"] == "abc123"
+    assert payload["provenance"]["source_sha256"] == "unknown"
     assert payload["provenance"]["command"] == [
         "scripts/run_eval_loop.py", "evaluate"
     ]
@@ -244,4 +279,16 @@ def test_run_rejects_inputs_changed_during_evaluation(tmp_path):
         run_experiment(
             path, tmp_path / "output", root=tmp_path,
             evaluate=change_input, now=lambda: NOW,
+        )
+
+
+def test_run_rejects_source_changed_during_evaluation(tmp_path):
+    path = _manifest(tmp_path)
+    states = iter(["clean-source", "changed-source"])
+    with pytest.raises(ValueError, match="source changed"):
+        run_experiment(
+            path, tmp_path / "output", root=tmp_path,
+            evaluate=lambda _manifest, _paths: _evaluation(),
+            now=lambda: NOW,
+            source_state=lambda: next(states),
         )

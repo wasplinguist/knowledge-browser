@@ -71,10 +71,36 @@ def validate_manifest(
         raise ValueError("missing experiment fields: " + ", ".join(missing))
     if manifest["status"] != "implemented":
         raise ValueError("experiment status must be implemented")
-    if manifest["intent_audit"].get("verdict") != "ALIGNED":
+    text_fields = (
+        "insight", "hypothesis", "implementation", "regression_risk",
+        "golden_change_reason",
+    )
+    for field in text_fields:
+        if not isinstance(manifest[field], str) or not manifest[field].strip():
+            raise ValueError(f"{field} must be a non-empty explanation")
+    audit = manifest["intent_audit"]
+    if not isinstance(audit, Mapping) or audit.get("verdict") != "ALIGNED":
         raise ValueError("intent audit must be ALIGNED")
-    if not manifest["affected_intents"] or not manifest["target_metrics"]:
+    if not isinstance(audit.get("evidence"), str) or not audit["evidence"].strip():
+        raise ValueError("intent audit evidence must be non-empty")
+    if not all(
+        isinstance(values, list)
+        and values
+        and all(isinstance(value, str) and value.strip() for value in values)
+        for values in (manifest["affected_intents"], manifest["target_metrics"])
+    ):
         raise ValueError("affected intents and target metrics are required")
+    golden_changes = manifest["golden_changes"]
+    if not isinstance(golden_changes, list):
+        raise ValueError("golden_changes must be a list")
+    for change in golden_changes:
+        if not isinstance(change, Mapping) or any(
+            not isinstance(change.get(field), str) or not change[field].strip()
+            for field in ("query_id", "change", "evidence")
+        ):
+            raise ValueError(
+                "every golden change needs query_id, change, and behavior evidence"
+            )
     paths = experiment_paths(manifest, root)
     for field, item in paths.items():
         if not item.is_file():
@@ -98,6 +124,15 @@ def validate_manifest(
         created_at = _timestamp(manifest["created_at"], "experiment created_at")
         total_searches = evidence["total_searches"]
         excluded_profiles = evidence["excluded_profiles"]
+        unique_queries = evidence["unique_queries"]
+        no_result_rate = evidence["no_result_rate"]
+        click_through_rate = evidence["click_through_rate"]
+        p50_duration_ms = evidence["p50_duration_ms"]
+        p95_duration_ms = evidence["p95_duration_ms"]
+        top_queries = evidence["top_queries"]
+        no_results = evidence["top_no_result_queries"]
+        unclicked = evidence["top_unclicked_queries"]
+        reformulations = evidence["reformulations"]
     except KeyError as error:
         raise ValueError("evidence report fields are incomplete") from error
     current = now().astimezone(timezone.utc)
@@ -105,8 +140,24 @@ def validate_manifest(
         raise ValueError("evidence and experiment timestamps are invalid")
     if current - until > timedelta(days=1):
         raise ValueError("evidence report is not fresh")
-    if not isinstance(total_searches, int) or total_searches < 1:
+    if isinstance(total_searches, bool) or not isinstance(total_searches, int) or total_searches < 1:
         raise ValueError("evidence report has no useful behavior")
+    if (
+        isinstance(unique_queries, bool)
+        or not isinstance(unique_queries, int)
+        or unique_queries < 1
+        or not all(isinstance(value, (int, float)) for value in (
+            no_result_rate, click_through_rate, p50_duration_ms, p95_duration_ms
+        ))
+        or not isinstance(top_queries, list)
+        or not top_queries
+        or not all(isinstance(value, list) for value in (
+            no_results, unclicked, reformulations
+        ))
+    ):
+        raise ValueError("evidence report fields are invalid")
+    if not no_results and not unclicked and not reformulations:
+        raise ValueError("evidence report has no failure or reformulation to improve")
     if (
         not isinstance(excluded_profiles, list)
         or "demo-loop-v1" not in excluded_profiles
@@ -289,10 +340,12 @@ def run_experiment(
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     git_sha: str = "unknown",
     command: Sequence[str] = (),
+    source_state: Callable[[], str] = lambda: "unknown",
 ) -> Path:
     if output_dir.exists():
         raise ValueError("output directory must not already exist")
     started_at = now().astimezone(timezone.utc)
+    source_sha256 = source_state()
     manifest = validate_manifest(manifest_path, root, now=lambda: started_at)
     paths = experiment_paths(manifest, root)
     input_paths = {"manifest": manifest_path, **paths}
@@ -300,6 +353,8 @@ def run_experiment(
     evaluation = evaluate(manifest, paths)
     if input_hashes != {name: _hash(item) for name, item in input_paths.items()}:
         raise ValueError("experiment inputs changed during evaluation")
+    if source_state() != source_sha256:
+        raise ValueError("source changed during evaluation")
     run = {
         **evaluation,
         "experiment_id": manifest["id"],
@@ -307,6 +362,7 @@ def run_experiment(
         "decision": decide(evaluation),
         "provenance": {
             "git_sha": git_sha,
+            "source_sha256": source_sha256,
             "command": list(command),
             "sha256": input_hashes,
         },

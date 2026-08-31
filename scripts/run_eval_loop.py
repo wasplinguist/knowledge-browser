@@ -3,6 +3,7 @@
 
 import argparse
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 import subprocess
 import sys
@@ -15,11 +16,42 @@ from knowledge_browser.weekly import build_weekly_report, write_weekly_report
 ROOT = Path(__file__).parents[1]
 
 
+def _git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, check=True, capture_output=True, text=True,
+    ).stdout
+
+
+def _repository_roots() -> tuple[Path, ...]:
+    common_value = Path(_git("rev-parse", "--git-common-dir").strip())
+    common = (common_value if common_value.is_absolute() else ROOT / common_value).resolve()
+    worktrees = [
+        Path(line.removeprefix("worktree ")).resolve()
+        for line in _git("worktree", "list", "--porcelain").splitlines()
+        if line.startswith("worktree ")
+    ]
+    return tuple(dict.fromkeys([common, *worktrees]))
+
+
 def _outside_repo(path: Path) -> Path:
     resolved = path.resolve()
-    if resolved.is_relative_to(ROOT.resolve()):
-        raise ValueError("generated output must stay outside the repository")
+    if any(resolved == root or resolved.is_relative_to(root) for root in _repository_roots()):
+        raise ValueError("generated output must stay outside every Git worktree and .git")
     return resolved
+
+
+def _source_state() -> str:
+    if _git("status", "--porcelain", "--untracked-files=all").strip():
+        raise ValueError("evaluation requires a clean committed worktree")
+    digest = sha256()
+    tracked = _git("ls-files", "-z").split("\0")
+    for value in (item for item in tracked if item):
+        path = ROOT / value
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def analyze(days: int, output_dir: Path, excluded_profiles: tuple[str, ...]) -> Path:
@@ -33,10 +65,7 @@ def analyze(days: int, output_dir: Path, excluded_profiles: tuple[str, ...]) -> 
 
 
 def evaluate(experiment: Path, output_dir: Path) -> Path:
-    git_sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, check=True,
-        capture_output=True, text=True,
-    ).stdout.strip()
+    git_sha = _git("rev-parse", "HEAD").strip()
     with connection() as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         return run_experiment(
@@ -46,6 +75,7 @@ def evaluate(experiment: Path, output_dir: Path) -> Path:
             evaluate=lambda manifest, paths: execute_evaluation(conn, manifest, paths),
             git_sha=git_sha,
             command=sys.argv,
+            source_state=_source_state,
         )
 
 

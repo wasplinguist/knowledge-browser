@@ -48,6 +48,12 @@ older-than-24-hours evidence report; a non-`ALIGNED` audit; a baseline other
 than `search/profiles/released.json`; a challenger with unchanged behavior
 settings; incomplete embeddings; or any existing output directory.
 
+A useful behavior report must have the complete weekly-report shape and at
+least one no-result query, unclicked query, or reformulation. The manifest's
+insight, hypothesis, implementation, regression risk, audit evidence, and
+golden decision must be real non-empty explanations. Every golden change is an
+object with `query_id`, `change`, and behavior `evidence`.
+
 The fast ACL sample includes every query marked `acl_aware`, up to two queries
 from every query type, each selected query owner, and a stable spread of other
 users. It is only a development gate. Native full ACL remains required before
@@ -56,6 +62,10 @@ release.
 Evaluation uses one read-only repeatable-read transaction, so baseline,
 challenger, and ACL checks see one database snapshot. Input hashes are taken
 before search and checked again afterward. Any changed input fails the run.
+The feature code and manifest must be committed first. Evaluation refuses a
+dirty worktree, records a hash of every tracked file, and checks the hash again
+afterward. Generated output is rejected inside every checkout/worktree and the
+shared `.git` directory.
 
 ## Manifest example
 
@@ -89,6 +99,12 @@ inside this repository.
 Every golden query ID needs one 1,536-number vector in the embeddings JSON.
 Repeated query text must use the same vector. An unclicked query alone does not
 prove an alias or a relevance label; keep the uncertainty or stop.
+
+When a label really changes, use this form:
+
+```json
+{"query_id": "q-nrel", "change": "add relevant Jira root", "evidence": "reformulation and click in the fresh weekly report"}
+```
 
 ## Decision gate
 

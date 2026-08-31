@@ -35,6 +35,11 @@ Use test-driven development to create one genuinely different challenger.
 Change golden labels only when the behavior evidence proves a missing or wrong
 label. Record the reason either way in the experiment manifest.
 
+Commit the implemented challenger, manifest, and tests before evaluation. The
+runner refuses dirty source and checks a full tracked-source hash before and
+after the run. Generated evidence and reports must stay outside every Git
+worktree and the shared `.git` directory.
+
 Follow the manifest contract, then run:
 
 ```bash
