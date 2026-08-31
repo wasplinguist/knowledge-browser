@@ -13,4 +13,5 @@ dist/
 coverage.xml
 postgres-data/
 .worktrees/
+.superpowers/
 data/.cache/

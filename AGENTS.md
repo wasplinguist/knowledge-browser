@@ -10,6 +10,13 @@ Do not copy old experiments, caches, generated reports, local settings, or
 inactive datasets into this repository. The old `knowledge-search` repository
 is reference material only.
 
+## Active product order
+
+Build against the populated existing database in this order: existing database
+compatibility and ACL-safe reads, hybrid retrieval, search API, grounded RAG,
+then the web experience. Canonical synthetic dataset generation and source
+ingestion are deferred; they are not dependencies for the active product path.
+
 ## Search-changing work
 
 Before changing search behavior, read `docs/PRODUCT_INTENT.md` and run its

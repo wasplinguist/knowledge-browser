@@ -52,37 +52,40 @@ features already present on remote `main`.
 
 1. **Runtime foundation** — Python API package, React application, PostgreSQL
    development service, basic CI, and health checks.
-2. **Canonical synthetic dataset** — one deterministic generator, one approved
-   schema, tiny test data, and one final production-like configuration. Earlier
-   dataset attempts are not migrated.
-3. **Database and ACL model** — shared documents, chunks, source records,
-   identities, groups, permission sets, and default-deny access rules.
-4. **Source ingestion** — manifest validation and final Slack, Jira, Confluence,
-   and GitHub normalization, including root/child ACL inheritance.
-5. **Hybrid retrieval** — search profiles, alias expansion, ACL-filtered keyword
+2. **Existing database compatibility and ACL-safe reads** — connect to and
+   verify the populated PostgreSQL/pgvector database, resolve identities, and
+   read documents, chunks, and sentences with own-and-root ACL filtering.
+3. **Hybrid retrieval** — search profiles, alias expansion, ACL-filtered keyword
    and semantic retrieval, reciprocal rank fusion, and root grouping.
-6. **Search API and analytics** — search responses, facets, result identity,
+4. **Search API and analytics** — search responses, facets, result identity,
    click events, and safe demo identity behavior.
-7. **Grounded RAG answers** — shared retrieval, evidence navigation, citation
+5. **Grounded RAG answers** — shared retrieval, evidence navigation, citation
    validation, fast/deep budgets, conflicts, completeness, cost, and telemetry.
-8. **Enterprise ranking** — only approved freshness, authority,
+6. **Web experience** — search loading behavior, answer display, deduplicated
+   provenance, and source detail panels instead of broken external demo links.
+7. **Enterprise ranking** — only approved freshness, authority,
    personalization, saturation, and hard-query behavior with new evaluation
    evidence.
-9. **Web experience** — search loading behavior, answer display, deduplicated
-   provenance, and source detail panels instead of broken external demo links.
-10. **Evaluation and test tiers** — golden queries, independent entitlement
-    checks, retrieval metrics, released/candidate comparison, fast/integration/
-    RAG/full-ACL groups, and CI jobs. Generated reports are separate artifacts.
-11. **Eval-driven development loop** — the behavior-to-candidate workflow after
-    the evaluation system it depends on is merged.
+8. **Evaluation and test tiers** — golden queries, independent entitlement
+   checks, retrieval metrics, released/candidate comparison, fast/integration/
+   RAG/full-ACL groups, and CI jobs. Generated reports are separate artifacts.
+9. **Eval-driven development loop** — the behavior-to-candidate workflow after
+   the evaluation system it depends on is merged.
+
+Canonical synthetic dataset generation and source ingestion are deferred. They
+may be contracted later for reproducibility or refresh workflows, but neither is
+a dependency for compatibility, retrieval, API, RAG, or UI work against the
+existing database.
 
 ## Data policy
 
-The canonical generator is the source of truth. Its tiny configuration supports
-fast tests. Its final large configuration supports realistic search and
-evaluation. Generated large data is reviewed in a separate PR from generator
-code when its size would hide code changes. The generator must be deterministic
-and the committed manifest must prove file hashes and counts.
+The populated existing database is the active product input. Focused integration
+tests use a minimal test-only schema and synthetic rows in a dedicated `_test`
+database; that fixture is not a production migration or canonical dataset.
+
+If canonical generation is later approved, its tiny configuration must support
+fast tests, its final configuration must support realistic search and
+evaluation, and its manifest must prove deterministic hashes and counts.
 
 The migration does not include old tiny corpora, intermediate 400-artifact
 data, replaced 1,000-artifact variants, archived data, or historical eval runs.
@@ -103,8 +106,8 @@ release change is merged.
 ## Parallel agent policy
 
 Independent features may run in parallel only when they touch different files
-and depend only on merged `main`. Database, ingestion, retrieval, and evaluation
-features are normally sequential because their contracts depend on one another.
+and depend only on merged `main`. Retrieval, API, RAG, and evaluation features
+are normally sequential because their contracts depend on one another.
 Every worktree uses a unique test database. No agent may commit another
 worktree's files or clean another worktree without checking its status.
 
