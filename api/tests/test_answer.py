@@ -227,15 +227,59 @@ def test_tool_failure_returns_safe_partial_execution(monkeypatch):
     assert raised.value.trace[0]["status"] == "failed"
 
 
-def test_invalid_final_json_is_plain_incomplete_text(monkeypatch):
+def test_invalid_final_json_returns_safe_execution_error(monkeypatch):
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [])
     response = SimpleNamespace(id="final", output=[], output_text="Plain answer")
 
-    answer = answer_module.answer_question(
-        None, "user", "What happened?", lambda _query: None,
-        SimpleNamespace(responses=Responses([response])),
+    with pytest.raises(answer_module.AnswerExecutionError) as raised:
+        answer_module.answer_question(
+            None, "user", "What happened?", lambda _query: None,
+            SimpleNamespace(responses=Responses([response])),
+        )
+
+    assert raised.value.execution["llm_loops"] == 1
+    assert "Plain answer" not in str(raised.value)
+
+
+def test_non_object_tool_arguments_return_safe_execution_error(monkeypatch):
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [])
+    response = SimpleNamespace(
+        id="bad-tool",
+        output=[SimpleNamespace(
+            type="function_call",
+            name="read_chunk",
+            arguments="[]",
+            call_id="call-bad",
+        )],
+        output_text="",
     )
 
-    assert answer["answer"] == "Plain answer"
-    assert answer["evidence_status"] == "incomplete"
-    assert answer["citations"] == []
+    with pytest.raises(answer_module.AnswerExecutionError) as raised:
+        answer_module.answer_question(
+            None, "user", "What happened?", lambda _query: None,
+            SimpleNamespace(responses=Responses([response])),
+        )
+
+    assert raised.value.execution["tool_calls"] == 1
+    assert raised.value.trace[0]["status"] == "failed"
+
+
+def test_duplicate_citation_ids_return_one_citation(monkeypatch):
+    hit = _result()
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])
+    monkeypatch.setattr(answer_module, "read_chunk", lambda *_args: {**hit, "text": "x"})
+    responses = Responses([
+        _call("read", "read_chunk", {"source": "jira", "chunk_id": hit["chunk_id"]}),
+        _final({
+            "answer": "Claim",
+            "evidence_status": "complete",
+            "citations": [hit["chunk_id"], hit["chunk_id"]],
+        }),
+    ])
+
+    answer = answer_module.answer_question(
+        None, "user", "What happened?", lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    assert [item["chunk_id"] for item in answer["citations"]] == [hit["chunk_id"]]

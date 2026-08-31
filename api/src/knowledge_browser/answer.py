@@ -160,7 +160,18 @@ def answer_question(
             try:
                 arguments = json.loads(call.arguments)
             except (TypeError, json.JSONDecodeError):
-                arguments = {}
+                arguments = None
+            if not isinstance(arguments, dict):
+                trace.append({
+                    "step": tool_calls,
+                    "llm_loop": llm_loops,
+                    "tool": call.name,
+                    "source": source,
+                    "status": "failed",
+                    "result_count": 0,
+                    "new_chunks": 0,
+                })
+                raise AnswerExecutionError(execution(), trace)
             requested_source = source or arguments.get("source")
             try:
                 if call.name == "read_chunk" and (
@@ -226,7 +237,9 @@ def answer_question(
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        payload = {"answer": raw, "evidence_status": "incomplete", "citations": []}
+        raise AnswerExecutionError(execution(), trace)
+    if not isinstance(payload, dict):
+        raise AnswerExecutionError(execution(), trace)
 
     citeable: dict[str, dict[str, Any]] = {}
     ambiguous: set[str] = set()
@@ -239,7 +252,7 @@ def answer_question(
             citeable[chunk_id] = chunk
     citations = [
         _citation(citeable[chunk_id])
-        for chunk_id in _citation_ids(payload.get("citations"))
+        for chunk_id in dict.fromkeys(_citation_ids(payload.get("citations")))
         if chunk_id in citeable
     ]
     conflicts = []
