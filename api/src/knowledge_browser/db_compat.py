@@ -230,6 +230,7 @@ def check_compatibility(conn) -> CompatibilityReport:
             (list(REQUIRED_COLUMNS),),
         )
     }
+    valid_columns: set[tuple[str, str]] = set()
     for table, required_columns in REQUIRED_COLUMNS.items():
         for column, expected in required_columns.items():
             actual = columns.get((table, column))
@@ -247,12 +248,22 @@ def check_compatibility(conn) -> CompatibilityReport:
             expected_expression = REQUIRED_GENERATED_EXPRESSIONS.get((table, column))
             if expected_expression is not None and actual[4] != expected_expression:
                 issues.append(f"invalid generated expression: {table}.{column}")
+            if (
+                actual[:3] == expected
+                and actual[3] == REQUIRED_IDENTITIES.get((table, column), "")
+                and (
+                    expected_expression is None
+                    or actual[4] == expected_expression
+                )
+            ):
+                valid_columns.add((table, column))
 
     indexes: dict[str, list[tuple[object, ...]]] = {}
-    for name, table, method, valid, ready, keys, opclasses in conn.execute(
+    for name, table, method, valid, ready, predicate, keys, opclasses in conn.execute(
             """
             SELECT index_class.relname, table_class.relname, access_method.amname,
                    index.indisvalid, index.indisready,
+                   pg_get_expr(index.indpred, index.indrelid),
                    ARRAY(
                      SELECT pg_get_indexdef(index.indexrelid, position, true)
                      FROM generate_series(1, index.indnkeyatts) position
@@ -275,30 +286,46 @@ def check_compatibility(conn) -> CompatibilityReport:
             (list(REQUIRED_INDEXES),),
         ):
         indexes.setdefault(name, []).append(
-            (table, method, tuple(keys), tuple(opclasses), valid, ready)
+            (table, method, tuple(keys), tuple(opclasses), valid, ready, predicate)
         )
     for name, expected in REQUIRED_INDEXES.items():
         if name not in indexes:
             issues.append(f"missing index: {name}")
-        elif not any(actual[:4] == expected and actual[4] and actual[5] for actual in indexes[name]):
+        elif not any(
+            actual[:4] == expected
+            and actual[4]
+            and actual[5]
+            and actual[6] is None
+            for actual in indexes[name]
+        ):
             issues.append(f"invalid index: {name}")
 
-    partitions: dict[str, list[tuple[str, str]]] = {}
-    for child, parent, bound in conn.execute(
+    partitions: dict[str, list[tuple[str, str, str]]] = {}
+    for child, parent_schema, parent, bound in conn.execute(
             """
-            SELECT child.relname, parent.relname,
+            SELECT child.relname, parent_namespace.nspname, parent.relname,
                    pg_get_expr(child.relpartbound, child.oid)
             FROM pg_inherits inheritance
             JOIN pg_class child ON child.oid = inheritance.inhrelid
             JOIN pg_class parent ON parent.oid = inheritance.inhparent
             JOIN pg_namespace namespace ON namespace.oid = child.relnamespace
+            JOIN pg_namespace parent_namespace
+              ON parent_namespace.oid = parent.relnamespace
             WHERE namespace.nspname = 'public'
             """
         ):
-        partitions.setdefault(child, []).append((parent, bound))
+        partitions.setdefault(child, []).append((parent_schema, parent, bound))
     expected_partitions = {
-        **{f"{source}_chunks": ("chunks", f"FOR VALUES IN ('{source}')") for source in SOURCES},
-        **{f"{source}_sentences": ("sentences", f"FOR VALUES IN ('{source}')") for source in SOURCES},
+        **{
+            f"{source}_chunks":
+                ("public", "chunks", f"FOR VALUES IN ('{source}')")
+            for source in SOURCES
+        },
+        **{
+            f"{source}_sentences":
+                ("public", "sentences", f"FOR VALUES IN ('{source}')")
+            for source in SOURCES
+        },
     }
     for child, expected in expected_partitions.items():
         if child not in partitions:
@@ -307,7 +334,16 @@ def check_compatibility(conn) -> CompatibilityReport:
             issues.append(f"invalid partition: {child}")
 
     constraints: dict[str, list[tuple[object, ...]]] = {}
-    for name, table, kind, valid, columns_, referenced_table, referenced_columns in conn.execute(
+    for (
+        name,
+        table,
+        kind,
+        valid,
+        columns_,
+        referenced_schema,
+        referenced_table,
+        referenced_columns,
+    ) in conn.execute(
             """
             SELECT constraint_record.conname, table_class.relname,
                    constraint_record.contype, constraint_record.convalidated,
@@ -320,7 +356,7 @@ def check_compatibility(conn) -> CompatibilityReport:
                       AND attribute.attnum = key.attnum
                      ORDER BY key.position
                    ),
-                   referenced_class.relname,
+                   referenced_namespace.nspname, referenced_class.relname,
                    ARRAY(
                      SELECT attribute.attname
                      FROM unnest(constraint_record.confkey)
@@ -335,6 +371,8 @@ def check_compatibility(conn) -> CompatibilityReport:
               ON table_class.oid = constraint_record.conrelid
             LEFT JOIN pg_class referenced_class
               ON referenced_class.oid = constraint_record.confrelid
+            LEFT JOIN pg_namespace referenced_namespace
+              ON referenced_namespace.oid = referenced_class.relnamespace
             JOIN pg_namespace namespace ON namespace.oid = table_class.relnamespace
             WHERE namespace.nspname = 'public'
               AND constraint_record.conname = ANY(%s)
@@ -346,7 +384,11 @@ def check_compatibility(conn) -> CompatibilityReport:
                 table,
                 kind,
                 tuple(columns_),
-                referenced_table,
+                (
+                    f"{referenced_schema}.{referenced_table}"
+                    if referenced_table is not None
+                    else None
+                ),
                 tuple(referenced_columns),
                 valid,
             )
@@ -354,13 +396,22 @@ def check_compatibility(conn) -> CompatibilityReport:
     for name, expected in REQUIRED_CONSTRAINTS.items():
         if name not in constraints:
             issues.append(f"missing constraint: {name}")
-        elif not any(actual[:5] == expected and actual[5] for actual in constraints[name]):
-            issues.append(f"invalid constraint: {name}")
+        else:
+            expected_with_schema = (
+                *expected[:3],
+                f"public.{expected[3]}" if expected[3] is not None else None,
+                expected[4],
+            )
+            if not any(
+                actual[:5] == expected_with_schema and actual[5]
+                for actual in constraints[name]
+            ):
+                issues.append(f"invalid constraint: {name}")
 
     document_count = chunk_count = sentence_count = embedded_sentence_count = 0
     document_source_counts = {source: 0 for source in SOURCES}
     if {"documents", "chunks", "sentences"} <= tables and all(
-        (table, column) in columns
+        (table, column) in valid_columns
         for table in ("documents", "chunks", "sentences")
         for column in REQUIRED_COLUMNS[table]
     ):
@@ -463,7 +514,16 @@ def check_compatibility(conn) -> CompatibilityReport:
         ),
     )
     for link, left_table, right_table, left_key, right_key in acl_relationships:
-        if {link, left_table, right_table} <= tables:
+        required_relationship_columns = {
+            (link, left_key),
+            (link, right_key),
+            (left_table, "id"),
+            (right_table, "id"),
+        }
+        if (
+            {link, left_table, right_table} <= tables
+            and required_relationship_columns <= valid_columns
+        ):
             broken_links = conn.execute(
                 f"""
                 SELECT count(*)

@@ -69,6 +69,17 @@ def test_compatibility_requires_exact_search_index_columns_and_operator_classes(
     assert expected_issue in report.issues
 
 
+def test_compatibility_rejects_a_partial_search_index(db):
+    db.execute("DROP INDEX chunks_fts_idx")
+    db.execute(
+        "CREATE INDEX chunks_fts_idx ON chunks USING gin (fts) WHERE false"
+    )
+
+    report = check_compatibility(db)
+
+    assert "invalid index: chunks_fts_idx" in report.issues
+
+
 def test_compatibility_fails_for_a_missing_embedding(db):
     db.execute(
         "UPDATE sentences SET embedding = NULL "
@@ -159,6 +170,31 @@ def test_compatibility_rejects_a_constraint_name_on_the_wrong_table(db):
     assert "invalid constraint: documents_root_document_id_fkey" in report.issues
 
 
+def test_compatibility_rejects_a_foreign_key_to_the_wrong_schema(db):
+    db.execute(
+        "ALTER TABLE permission_set_users "
+        "DROP CONSTRAINT permission_set_users_permission_set_id_fkey"
+    )
+    db.execute("CREATE SCHEMA impostor")
+    db.execute("CREATE TABLE impostor.permission_sets (id uuid PRIMARY KEY)")
+    db.execute(
+        "INSERT INTO impostor.permission_sets "
+        "SELECT DISTINCT permission_set_id FROM permission_set_users"
+    )
+    db.execute(
+        "ALTER TABLE permission_set_users ADD CONSTRAINT "
+        "permission_set_users_permission_set_id_fkey "
+        "FOREIGN KEY (permission_set_id) REFERENCES impostor.permission_sets(id)"
+    )
+
+    report = check_compatibility(db)
+
+    assert (
+        "invalid constraint: permission_set_users_permission_set_id_fkey"
+        in report.issues
+    )
+
+
 def test_compatibility_rejects_a_search_index_on_the_wrong_relation(db):
     db.execute("DROP INDEX chunks_fts_idx")
     db.execute("CREATE TABLE index_impostor (fts tsvector)")
@@ -175,6 +211,24 @@ def test_compatibility_rejects_a_partition_with_the_wrong_source_bound(db):
     db.execute("DELETE FROM confluence_chunks")
     db.execute(
         "ALTER TABLE chunks ATTACH PARTITION confluence_chunks FOR VALUES IN ('other')"
+    )
+
+    report = check_compatibility(db)
+
+    assert "invalid partition: confluence_chunks" in report.issues
+
+
+def test_compatibility_rejects_a_partition_on_a_same_named_parent_in_another_schema(db):
+    db.execute("DELETE FROM sentences WHERE source = 'confluence'")
+    db.execute("ALTER TABLE chunks DETACH PARTITION confluence_chunks")
+    db.execute("CREATE SCHEMA impostor")
+    db.execute(
+        "CREATE TABLE impostor.chunks (LIKE chunks INCLUDING ALL) "
+        "PARTITION BY LIST (source)"
+    )
+    db.execute(
+        "ALTER TABLE impostor.chunks ATTACH PARTITION confluence_chunks "
+        "FOR VALUES IN ('confluence')"
     )
 
     report = check_compatibility(db)
@@ -201,6 +255,63 @@ def test_compatibility_rejects_a_missing_permission_set_relationship(db):
     report = check_compatibility(db)
 
     assert "documents contain missing permission sets" in report.issues
+
+
+@pytest.mark.parametrize(
+    ("table", "columns", "values"),
+    [
+        (
+            "permission_set_users",
+            "permission_set_id, user_id",
+            "'20000000-0000-0000-0000-000000000099', "
+            "'00000000-0000-0000-0000-000000000002'",
+        ),
+        (
+            "permission_set_groups",
+            "permission_set_id, group_id",
+            "'20000000-0000-0000-0000-000000000099', "
+            "'10000000-0000-0000-0000-000000000001'",
+        ),
+        (
+            "group_memberships",
+            "group_id, user_id",
+            "'10000000-0000-0000-0000-000000000099', "
+            "'00000000-0000-0000-0000-000000000003'",
+        ),
+    ],
+)
+def test_compatibility_rejects_broken_acl_link_relationships(
+    db, table, columns, values
+):
+    db.execute("SET LOCAL session_replication_role = replica")
+    db.execute(f"INSERT INTO {table} ({columns}) VALUES ({values})")
+    db.execute("SET LOCAL session_replication_role = origin")
+
+    report = check_compatibility(db)
+
+    assert f"{table} contain broken relationships" in report.issues
+
+
+def test_compatibility_reports_a_missing_acl_link_column_without_crashing(db):
+    db.execute("ALTER TABLE permission_set_users DROP COLUMN user_id CASCADE")
+
+    report = check_compatibility(db)
+
+    assert "missing column: permission_set_users.user_id" in report.issues
+
+
+def test_compatibility_reports_an_invalid_content_join_type_without_crashing(db):
+    db.execute(
+        "ALTER TABLE documents DROP CONSTRAINT documents_permission_set_id_fkey"
+    )
+    db.execute(
+        "ALTER TABLE documents ALTER COLUMN permission_set_id TYPE text "
+        "USING permission_set_id::text"
+    )
+
+    report = check_compatibility(db)
+
+    assert "invalid column type: documents.permission_set_id" in report.issues
 
 
 def test_cli_output_is_aggregate_only_and_never_echoes_credentials(prepared_test_database):
