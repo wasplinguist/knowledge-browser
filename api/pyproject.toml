@@ -13,6 +13,10 @@ dev = ["httpx2>=2,<3", "pytest>=8,<10"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "unit: isolated API behavior without PostgreSQL",
+  "integration: API behavior exercised against dedicated PostgreSQL",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,6 +1,10 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from knowledge_browser.main import create_app
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_health_is_small_and_has_no_database_dependency():
