@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+import re
 from typing import Any
 from uuid import UUID
 
@@ -6,6 +8,87 @@ from .profiles import SearchProfile, expand_query
 
 
 SNIPPET_LENGTH = 280
+FRESHNESS_QUERY = re.compile(
+    r"\b(current|latest|recent|newest|now|today|up[- ]to[- ]date)\b",
+    re.IGNORECASE,
+)
+JIRA_KEY = re.compile(
+    r"(?<![A-Z0-9])([A-Z][A-Z0-9]{1,15}-\d+)(?![A-Z0-9])",
+    re.IGNORECASE,
+)
+AUTHORITY_SIGNALS = (
+    ("github", re.compile(
+        r"\b(pull request|pr|commit|merged|code|repository)\b", re.IGNORECASE,
+    )),
+    ("confluence", re.compile(
+        r"\b(policy|design|decision|runbook|documentation|document|plan)\b",
+        re.IGNORECASE,
+    )),
+    ("slack", re.compile(
+        r"\b(first mentioned|message|thread|conversation|said)\b", re.IGNORECASE,
+    )),
+    ("jira", re.compile(
+        r"\b(status|assignee|ticket|issue|target version|fix version|affected version)\b",
+        re.IGNORECASE,
+    )),
+)
+EXPLICIT_SOURCES = {
+    source: re.compile(rf"\b{source}\b", re.IGNORECASE)
+    for source in ("jira", "github", "confluence", "slack")
+}
+
+
+def _timestamp(value: datetime | str | None) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat((value or "").replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _evidence_timestamp(item: dict[str, Any]) -> datetime:
+    return max(
+        _timestamp(item.get("updated_at")),
+        _timestamp(item.get("matched_updated_at")),
+    )
+
+
+def _authoritative_source(query: str) -> str | None:
+    explicit = [
+        source for source, pattern in EXPLICIT_SOURCES.items()
+        if pattern.search(query)
+    ]
+    if len(explicit) == 1:
+        return explicit[0]
+    if len(explicit) > 1:
+        return None
+    return next(
+        (source for source, pattern in AUTHORITY_SIGNALS if pattern.search(query)),
+        None,
+    )
+
+
+def _primary_project_roots(conn, user_id: UUID | str, root_ids: list[Any]) -> set[Any]:
+    if not root_ids:
+        return set()
+    return {
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT documents.id
+            FROM documents
+            JOIN users ON users.id = %(user_id)s
+            WHERE documents.id = ANY(%(root_ids)s)
+              AND documents.raw_payload->'project_ids' ? COALESCE(
+                    users.raw_payload->'raw_payload'->>'primary_project_id',
+                    users.raw_payload->>'primary_project_id'
+                  )
+            """,
+            {"user_id": user_id, "root_ids": root_ids},
+        ).fetchall()
+    }
 
 
 def _source_filter(source: str | None) -> tuple[str, dict[str, str]]:
@@ -204,9 +287,26 @@ def hybrid_search(
         for rank, match in enumerate(matches, start=1):
             result = grouped.setdefault(
                 match["root_id"],
-                {**match, "score": 0.0, "best_rank": rank},
+                {
+                    **match,
+                    "score": 0.0,
+                    "best_rank": rank,
+                    "evidence_timestamp": _evidence_timestamp(match),
+                    "jira_keys": set(),
+                },
             )
             result["score"] += weight / (profile.rrf_k + rank)
+            result["evidence_timestamp"] = max(
+                result["evidence_timestamp"], _evidence_timestamp(match)
+            )
+            if (
+                match["source"] == "jira"
+                and match["matched_field"] == "issue_metadata"
+            ):
+                result["jira_keys"].update(
+                    found.group(1).casefold()
+                    for found in JIRA_KEY.finditer(match["excerpt"])
+                )
             if (match["is_child"] and not result["is_child"]) or (
                 match["is_child"] == result["is_child"]
                 and rank < result["best_rank"]
@@ -216,6 +316,51 @@ def hybrid_search(
                 result["score"] = score
                 result["best_rank"] = rank
 
+    if profile.freshness_weight and FRESHNESS_QUERY.search(query):
+        recent = sorted(
+            grouped.values(),
+            key=lambda item: item["evidence_timestamp"],
+            reverse=True,
+        )
+        if recent:
+            recent[0]["score"] += profile.freshness_weight / (profile.rrf_k + 1)
+
+    authoritative_source = (
+        _authoritative_source(query) if profile.authority_weight else None
+    )
+    if authoritative_source:
+        authoritative = sorted(
+            (
+                item for item in grouped.values()
+                if item["source"] == authoritative_source
+            ),
+            key=lambda item: (-item["score"], item["external_id"]),
+        )
+        for rank, item in enumerate(authoritative, start=1):
+            item["score"] += profile.authority_weight / (profile.rrf_k + rank)
+
+    jira_key = JIRA_KEY.search(query) if profile.jira_key_weight else None
+    if jira_key:
+        exact_key = jira_key.group(1).casefold()
+        exact_tickets = [
+            item for item in grouped.values()
+            if exact_key in item["jira_keys"]
+        ]
+        for rank, item in enumerate(exact_tickets, start=1):
+            item["score"] += profile.jira_key_weight / (profile.rrf_k + rank)
+
+    if profile.personalization_weight:
+        personal_roots = _primary_project_roots(conn, user_id, list(grouped))
+        personal = sorted(
+            (
+                item for root_id, item in grouped.items()
+                if root_id in personal_roots
+            ),
+            key=lambda item: (-item["score"], item["external_id"]),
+        )
+        for rank, item in enumerate(personal, start=1):
+            item["score"] += profile.personalization_weight / (profile.rrf_k + rank)
+
     items = sorted(
         grouped.values(), key=lambda item: (-item["score"], item["external_id"])
     )
@@ -223,4 +368,6 @@ def hybrid_search(
         item.pop("root_id", None)
         item.pop("best_rank", None)
         item.pop("is_child", None)
+        item.pop("evidence_timestamp", None)
+        item.pop("jira_keys", None)
     return items

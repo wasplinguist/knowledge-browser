@@ -12,6 +12,10 @@ class SearchProfile:
     rrf_k: int = 60
     keyword_weight: float = 1.0
     semantic_weight: float = 1.0
+    freshness_weight: float = 0.0
+    authority_weight: float = 0.0
+    jira_key_weight: float = 0.0
+    personalization_weight: float = 0.0
     query_expansions: dict[str, str] = field(default_factory=dict)
     embedding_model: str = "text-embedding-3-small"
 
@@ -29,6 +33,10 @@ class SearchProfile:
         for name, value in (
             ("keyword_weight", self.keyword_weight),
             ("semantic_weight", self.semantic_weight),
+            ("freshness_weight", self.freshness_weight),
+            ("authority_weight", self.authority_weight),
+            ("jira_key_weight", self.jira_key_weight),
+            ("personalization_weight", self.personalization_weight),
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
                 raise ValueError(f"{name} must be at least 0")
