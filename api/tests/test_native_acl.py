@@ -23,17 +23,18 @@ NATIVE_PROFILE = Path(os.environ.get(
 @pytest.mark.search_eval
 @pytest.mark.full_acl
 @pytest.mark.nightly
-@pytest.mark.skipif(
-    not NATIVE_DATABASE,
-    reason="NATIVE_EVAL_DATABASE_URL is not configured",
-)
 def test_native_corpus_has_zero_root_and_child_acl_leaks():
     """Run only at a configured manual/nightly release gate."""
+    assert NATIVE_DATABASE, "NATIVE_EVAL_DATABASE_URL is required for full_acl"
     queries = json.loads(NATIVE_QUERIES.read_text(encoding="utf-8"))
+    assert len(queries) == 603
     profile = load_profile(NATIVE_PROFILE)
     with psycopg.connect(NATIVE_DATABASE) as conn:
         conn.execute("SET TRANSACTION READ ONLY")
         memberships, documents = entitlement_snapshot(conn)
+        root_count = conn.execute(
+            "SELECT count(*) FROM documents WHERE id = root_document_id"
+        ).fetchone()[0]
         result = audit_acl(
             memberships,
             documents,
@@ -43,6 +44,8 @@ def test_native_corpus_has_zero_root_and_child_acl_leaks():
             ),
         )
 
-    assert result["pairs"] == len(memberships) * len(queries)
+    assert len(memberships) == 100
+    assert root_count == 1000
+    assert result["pairs"] == 60_300
     assert result["root_leaks"] == []
     assert result["child_leaks"] == []

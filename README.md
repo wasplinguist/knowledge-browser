@@ -118,10 +118,9 @@ are not committed to the repository.
 
 The native ACL job uses the committed 603-query text projection and every user
 in the configured read-only database. This is 60,300 query/user pairs for the
-current 100-user corpus. The job skips when its protected database secret is
-not configured; a skipped job is not release proof. Never point it at a write
-database. It starts a read-only transaction and requires zero root and child
-leaks.
+current 100-user, 1,000-root corpus. The job fails when its protected database
+secret or expected corpus shape is missing. Never point it at a write database.
+It starts a read-only transaction and requires zero root and child leaks.
 
 ## Product and contribution rules
 
