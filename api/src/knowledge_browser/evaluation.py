@@ -134,8 +134,11 @@ def evaluate_grounding(
     ]
     duplicates = len(citations) - len(set(citations))
     unopened = sorted(citation for citation in set(citations) if citation not in opened)
+    complete_without_evidence = (
+        answer.get("evidence_status") == "complete" and not citations
+    )
     return {
-        "grounded": not duplicates and not unopened,
+        "grounded": not duplicates and not unopened and not complete_without_evidence,
         "duplicate_citations": duplicates,
         "unopened_citations": unopened,
     }

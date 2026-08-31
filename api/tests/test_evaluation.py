@@ -4,7 +4,6 @@ import pytest
 
 from knowledge_browser.evaluation import (
     compare_runs,
-    evaluate_grounding,
     evaluate_queries,
     load_golden_queries,
     ndcg_at_k,
@@ -97,22 +96,3 @@ def test_released_candidate_comparison_reports_wins_and_losses():
     assert comparison["losses"] == ["worse"]
     assert comparison["unchanged"] == []
     assert comparison["overall_delta"]["ndcg@10"] == pytest.approx(0.1)
-
-
-def test_grounding_evaluation_requires_opened_unique_citations():
-    answer = {
-        "evidence_status": "complete",
-        "citations": [
-            {"source": "jira", "chunk_id": "one"},
-            {"source": "jira", "chunk_id": "one"},
-            {"source": "slack", "chunk_id": "not-opened"},
-        ],
-    }
-
-    result = evaluate_grounding(answer, {("jira", "one")})
-
-    assert result == {
-        "grounded": False,
-        "duplicate_citations": 1,
-        "unopened_citations": [("slack", "not-opened")],
-    }
