@@ -24,6 +24,7 @@
 ## File Map
 
 ```text
+docs/superpowers/plans/2026-08-31-runtime-foundation.md implementation plan
 .github/workflows/ci.yml              pull-request verification
 compose.yaml                          local PostgreSQL/pgvector service
 README.md                             exact setup and verification commands
@@ -42,6 +43,7 @@ web/src/App.tsx                       minimal product shell
 web/src/App.test.tsx                  shell acceptance test
 web/src/test-setup.ts                 jest-dom assertions for Vitest
 web/src/styles.css                    minimal readable layout
+web/src/vite-env.d.ts                 Vite client type declarations
 ```
 
 ---
