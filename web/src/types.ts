@@ -60,6 +60,8 @@ export type DocumentPayload = {
   messages?: PersonText[]
   replies?: PersonText[]
   repository?: string
+  record_type?: string
+  type?: string
   number?: number
   review_state?: string
   state?: string

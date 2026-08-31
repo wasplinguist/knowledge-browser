@@ -31,8 +31,9 @@ beforeEach(() => {
     if (url.endsWith('/api/answer')) return json({
       answer: 'The pool is saturated.',
       citations: [
-        { external_id: 'ATLAS-231', title: 'Pool timeout', url: 'https://same.example/ATLAS-231' },
-        { external_id: 'ATLAS-231', title: 'Pool timeout', url: 'https://same.example/ATLAS-231' },
+        { source: 'jira', external_id: 'ATLAS-231', title: 'Pool timeout', url: 'https://same.example/ATLAS-231' },
+        { source: 'jira', external_id: 'ATLAS-231', title: 'Pool timeout', url: 'https://first.example/ATLAS-231' },
+        { source: 'jira', external_id: 'ATLAS-231', title: 'Pool timeout', url: 'https://second.example/ATLAS-231' },
       ],
       follow_ups: [],
     })

@@ -53,6 +53,7 @@ function GitHubView({ document }: { document: DocumentDetail }) {
     <p className="document-meta">
       {payload.repository && <span>{payload.repository}</span>}
       <>{payload.number !== undefined && ` · #${payload.number}`}</>
+      {(payload.record_type || payload.type) && <> · <span>{payload.record_type || payload.type}</span></>}
       {(payload.review_state || payload.state) && ` · ${payload.review_state || payload.state}`}
     </p>
     {payload.body && <p>{payload.body}</p>}

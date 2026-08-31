@@ -33,7 +33,7 @@ it('shows loading, Jira content, and a safe error', async () => {
 it.each([
   ['confluence', { space: 'ENG', sections: [{ heading: 'Root cause', body: 'Bounded retries.' }] }, 'Root cause'],
   ['slack', { channel: '#incidents', messages: [{ author: 'Priya', text: 'Relay alert' }] }, 'Relay alert'],
-  ['github', { repository: 'northstar/browser', number: 81, body: 'Bound retry fan-out.' }, 'northstar/browser'],
+  ['github', { repository: 'northstar/browser', number: 81, record_type: 'pull request', body: 'Bound retry fan-out.' }, 'pull request'],
 ] as const)('renders %s source content', async (source, payload, expected) => {
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({
     source, external_id: 'item-1', kind: 'item', title: 'Source item', payload,

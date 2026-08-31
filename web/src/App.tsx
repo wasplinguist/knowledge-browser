@@ -26,11 +26,16 @@ const displayDate = (value?: string | null) => value
   : 'Recently updated'
 
 function uniqueCitations(citations: Citation[]) {
-  const seen = new Set<string>()
+  const urls = new Set<string>()
+  const documents = new Set<string>()
   return citations.filter((citation) => {
-    const key = citation.url || `${citation.source || ''}:${citation.external_id || ''}`
-    if (seen.has(key)) return false
-    seen.add(key)
+    const url = citation.url || undefined
+    const document = citation.source && citation.external_id
+      ? `${citation.source}:${citation.external_id}`
+      : undefined
+    if (url && urls.has(url) || document && documents.has(document)) return false
+    if (url) urls.add(url)
+    if (document) documents.add(document)
     return true
   })
 }
