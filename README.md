@@ -7,8 +7,9 @@ through approved feature contracts.
 
 The product can read and verify the existing PostgreSQL 17/pgvector database.
 It also supports ACL-safe keyword and semantic retrieval, alias expansion,
-reciprocal rank fusion, and one result per root document. Search API, RAG, and
-UI behavior arrive in later contract-driven PRs.
+reciprocal rank fusion, and one result per root document. The API exposes
+demo-user selection, search, source facets, and safe click analytics. RAG and
+the full web experience arrive in later PRs.
 
 ## Requirements
 
@@ -25,6 +26,10 @@ api/.venv/bin/uvicorn knowledge_browser.main:app --reload --app-dir api/src
 ```
 
 Open `http://127.0.0.1:8000/api/health`.
+
+For local demo search, first read `/api/demo-users`, then send one returned ID
+as `X-Demo-User-Id` to `/api/search?q=...`. This header is demo identity only;
+it is not real login.
 
 ## Web
 

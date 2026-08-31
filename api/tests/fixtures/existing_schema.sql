@@ -87,3 +87,29 @@ CREATE TABLE confluence_sentences PARTITION OF sentences FOR VALUES IN ('conflue
 CREATE TABLE slack_sentences PARTITION OF sentences FOR VALUES IN ('slack');
 CREATE TABLE github_sentences PARTITION OF sentences FOR VALUES IN ('github');
 CREATE INDEX sentences_embedding_idx ON sentences USING hnsw (embedding halfvec_cosine_ops);
+
+CREATE TABLE search_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id uuid,
+  query text NOT NULL,
+  normalized_query text NOT NULL,
+  source text CHECK (source IS NULL OR source IN ('jira', 'confluence', 'slack', 'github')),
+  profile text NOT NULL,
+  result_ids jsonb NOT NULL,
+  result_count integer NOT NULL CHECK (result_count >= 0),
+  embedding_available boolean NOT NULL,
+  duration_ms integer NOT NULL CHECK (duration_ms > 0)
+);
+
+CREATE TABLE search_clicks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  search_id uuid NOT NULL REFERENCES search_events(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source text NOT NULL CHECK (source IN ('jira', 'confluence', 'slack', 'github')),
+  external_id text NOT NULL,
+  rank integer NOT NULL CHECK (rank > 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (search_id, source, external_id)
+);
