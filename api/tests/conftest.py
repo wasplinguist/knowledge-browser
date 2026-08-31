@@ -10,6 +10,22 @@ import pytest
 DEFAULT_TEST_DATABASE_URL = (
     "postgresql://postgres:postgres@localhost:5432/knowledge_browser_compat_test"
 )
+PRIMARY_MARKERS = {"unit", "integration", "search_eval", "rag_eval"}
+
+
+def pytest_collection_modifyitems(items):
+    invalid = []
+    for item in items:
+        primary = {
+            marker.name for marker in item.iter_markers()
+            if marker.name in PRIMARY_MARKERS
+        }
+        if len(primary) != 1:
+            invalid.append(f"{item.nodeid}: {sorted(primary) or ['missing']}")
+    if invalid:
+        raise pytest.UsageError(
+            "each test needs exactly one primary marker:\n" + "\n".join(invalid)
+        )
 
 
 def _test_database_url() -> str:

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "known-company-document",
+    "as_user": "00000000-0000-0000-0000-000000000001",
+    "query": "Company",
+    "relevant": ["jira:COMPANY-1"],
+    "grades": {"jira:COMPANY-1": 2},
+    "must_not_appear": ["jira:HIDDEN-ROOT", "jira:VISIBLE-CHILD", "jira:HIDDEN-CHILD"]
+  },
+  {
+    "id": "direct-document-allowed",
+    "as_user": "00000000-0000-0000-0000-000000000002",
+    "query": "Direct",
+    "relevant": ["confluence:DIRECT-1"],
+    "grades": {"confluence:DIRECT-1": 2},
+    "must_not_appear": ["slack:GROUP-1", "jira:HIDDEN-ROOT"]
+  },
+  {
+    "id": "group-document-allowed",
+    "as_user": "00000000-0000-0000-0000-000000000003",
+    "query": "Group",
+    "relevant": ["slack:GROUP-1"],
+    "grades": {"slack:GROUP-1": 2},
+    "must_not_appear": ["confluence:DIRECT-1", "jira:HIDDEN-ROOT"]
+  },
+  {
+    "id": "group-document-denied",
+    "as_user": "00000000-0000-0000-0000-000000000004",
+    "query": "Group",
+    "relevant": [],
+    "grades": {},
+    "must_not_appear": ["slack:GROUP-1", "jira:HIDDEN-ROOT"]
+  }
+]

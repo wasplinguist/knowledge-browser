@@ -17,9 +17,14 @@ dev = ["httpx2>=2,<3", "pytest>=8,<10"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+strict_markers = true
 markers = [
   "unit: isolated API behavior without PostgreSQL",
   "integration: API behavior exercised against dedicated PostgreSQL",
+  "search_eval: retrieval quality, golden-query, or search evaluation",
+  "rag_eval: grounded-answer evidence and citation evaluation",
+  "full_acl: exhaustive configured-corpus ACL safety overlay",
+  "nightly: long-running test excluded from normal pull-request jobs",
 ]
 
 [tool.setuptools.packages.find]
