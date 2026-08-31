@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the API and web application independent. FastAPI exposes only a health route; React renders only a product shell. PostgreSQL is available for the next schema feature but this PR creates no tables and makes no database connection.
 
-**Tech Stack:** Python 3.12, FastAPI, pytest, HTTPX, React 19.2.8, TypeScript 7.0.2, Vite 8.2.2, Vitest 4.1.11, Node.js 22, PostgreSQL 17 with pgvector, Docker Compose, GitHub Actions.
+**Tech Stack:** Python 3.12, FastAPI, pytest, HTTPX2, React 19.2.8, TypeScript 7.0.2, Vite 8.2.2, Vitest 4.1.11, Node.js 22.22.2 or newer, PostgreSQL 17 with pgvector, Docker Compose, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-clean-product-migration-design.md`
 
@@ -193,7 +193,7 @@ requires-python = ">=3.12"
 dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
 
 [project.optional-dependencies]
-dev = ["httpx>=0.27,<1", "pytest>=8,<10"]
+dev = ["httpx2>=2,<3", "pytest>=8,<10"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -652,7 +652,7 @@ data, database tables, and ACL behavior arrive in later contract-driven PRs.
 ## Requirements
 
 - Python 3.12
-- Node.js 22
+- Node.js 22.22.2 or newer
 - Docker with Compose
 
 ## API

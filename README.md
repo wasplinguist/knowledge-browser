@@ -12,7 +12,7 @@ data, database tables, and ACL behavior arrive in later contract-driven PRs.
 ## Requirements
 
 - Python 3.12
-- Node.js 22
+- Node.js 22.22.2 or newer
 - Docker with Compose
 
 ## API

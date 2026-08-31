@@ -8,3 +8,9 @@ def test_health_is_small_and_has_no_database_dependency():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_health_is_the_only_exposed_route():
+    app = create_app()
+
+    assert sorted(route.path for route in app.routes) == ["/api/health"]
