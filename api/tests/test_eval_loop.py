@@ -138,6 +138,8 @@ def test_manifest_requires_failure_evidence_and_a_complete_hypothesis_chain(tmp_
     evidence = json.loads(evidence_path.read_text())
     for field in ("top_no_result_queries", "top_unclicked_queries", "reformulations"):
         evidence[field] = []
+    evidence["no_result_rate"] = 0
+    evidence["click_through_rate"] = 1
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="failure or reformulation"):
         validate_manifest(path, tmp_path, now=lambda: NOW)
@@ -155,6 +157,38 @@ def test_manifest_requires_failure_evidence_and_a_complete_hypothesis_chain(tmp_
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="golden change"):
         validate_manifest(path, tmp_path / "bad-golden-change", now=lambda: NOW)
+
+
+def test_manifest_rejects_malformed_weekly_report_rows_and_numbers(tmp_path):
+    path = _manifest(tmp_path)
+    evidence_path = tmp_path / "evidence" / "weekly.json"
+    evidence = json.loads(evidence_path.read_text())
+    evidence["top_queries"] = [None]
+    evidence["top_no_result_queries"] = [None]
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="fields are invalid"):
+        validate_manifest(path, tmp_path, now=lambda: NOW)
+
+    path = _manifest(tmp_path / "bad-numbers")
+    evidence_path = tmp_path / "bad-numbers" / "evidence" / "weekly.json"
+    evidence = json.loads(evidence_path.read_text())
+    evidence["no_result_rate"] = True
+    evidence["click_through_rate"] = 1.5
+    evidence["p50_duration_ms"] = 50
+    evidence["p95_duration_ms"] = 20
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="fields are invalid"):
+        validate_manifest(path, tmp_path / "bad-numbers", now=lambda: NOW)
+
+    path = _manifest(tmp_path / "bad-reformulation")
+    evidence_path = tmp_path / "bad-reformulation" / "evidence" / "weekly.json"
+    evidence = json.loads(evidence_path.read_text())
+    evidence["top_no_result_queries"] = []
+    evidence["top_unclicked_queries"] = []
+    evidence["reformulations"] = [{"session_id": "", "queries": ["one"]}]
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="fields are invalid"):
+        validate_manifest(path, tmp_path / "bad-reformulation", now=lambda: NOW)
 
 
 def test_manifest_requires_released_baseline_and_real_behavior_change(tmp_path):

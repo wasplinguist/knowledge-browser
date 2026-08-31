@@ -57,6 +57,35 @@ def _timestamp(value: Any, label: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
+def _query_summaries(value: Any, total: int) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, Mapping)
+        and isinstance(item.get("query"), str)
+        and bool(item["query"].strip())
+        and not isinstance(item.get("searches"), bool)
+        and isinstance(item.get("searches"), int)
+        and 1 <= item["searches"] <= total
+        for item in value
+    )
+
+
+def _reformulation_rows(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, Mapping)
+        and isinstance(item.get("session_id"), str)
+        and bool(item["session_id"].strip())
+        and isinstance(item.get("queries"), list)
+        and len(item["queries"]) >= 2
+        and all(isinstance(query, str) and query.strip() for query in item["queries"])
+        and len(item["queries"]) == len(set(item["queries"]))
+        for item in value
+    )
+
+
 def validate_manifest(
     path: Path,
     root: Path,
@@ -145,15 +174,20 @@ def validate_manifest(
     if (
         isinstance(unique_queries, bool)
         or not isinstance(unique_queries, int)
-        or unique_queries < 1
-        or not all(isinstance(value, (int, float)) for value in (
+        or not 1 <= unique_queries <= total_searches
+        or not all(_number(value) for value in (
             no_result_rate, click_through_rate, p50_duration_ms, p95_duration_ms
         ))
-        or not isinstance(top_queries, list)
+        or not 0 <= no_result_rate <= 1
+        or not 0 <= click_through_rate <= 1
+        or not 0 <= p50_duration_ms <= p95_duration_ms
+        or not _query_summaries(top_queries, total_searches)
         or not top_queries
-        or not all(isinstance(value, list) for value in (
-            no_results, unclicked, reformulations
-        ))
+        or not _query_summaries(no_results, total_searches)
+        or not _query_summaries(unclicked, total_searches)
+        or not _reformulation_rows(reformulations)
+        or bool(no_results) != (no_result_rate > 0)
+        or bool(unclicked) != (click_through_rate < 1)
     ):
         raise ValueError("evidence report fields are invalid")
     if not no_results and not unclicked and not reformulations:
