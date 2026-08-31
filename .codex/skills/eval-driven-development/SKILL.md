@@ -43,9 +43,11 @@ DATABASE_URL='postgresql://...' api/.venv/bin/python scripts/run_eval_loop.py \
   --output-dir /tmp/knowledge-browser-runs/<id>
 ```
 
-The output directory must be new. The runner checks input hashes, runs both
+The output path must not exist yet. The runner checks fresh weekly evidence and
+input hashes, requires the repository's released profile as baseline, runs both
 profiles on the same queries and embeddings, performs a deterministic fast ACL
-sample, and creates `run.json` plus `report.html`.
+sample in one repeatable-read snapshot, and creates `run.json` plus
+`report.html`.
 
 Use the exact manifest keys and file rules in the contract's **Manifest
 example**. Focused development checks are:
@@ -57,7 +59,7 @@ api/.venv/bin/python -m pytest -q -m "(search_eval or rag_eval) and not nightly"
 
 ## Decide
 
-- `reject`: quality gate fails or any fast ACL/forbidden leak appears.
+- `reject`: quality/latency gate fails or any fast ACL/forbidden leak appears.
 - `recommend-release-gate`: development gates pass.
 
 A recommendation is not a release. A human reviews the fresh report, then runs
@@ -69,7 +71,7 @@ gate during ordinary challenger development.
 
 | Mistake | Required response |
 | --- | --- |
-| Reuse yesterday's run | Run again into a new empty directory. |
+| Reuse yesterday's run | Refresh evidence and run into a path that does not exist. |
 | Challenger equals released | Implement a real candidate first. |
 | Tiny ACL fixture passed | Treat it as smoke only; fast sample is development proof and native full ACL is release proof. |
 | Golden case added to reward the idea | Remove it unless behavior evidence supports the label. |

@@ -42,14 +42,20 @@ Every arrow must be backed by a fresh artifact or implemented change. An old
 run, an unchanged profile, a fixture-only ACL pass, or a report joined to a new
 manifest does not complete the loop.
 
-`analyze` reads existing events only. `evaluate` accepts a manifest and a new,
-empty output directory. It refuses an absent evidence file, non-`ALIGNED`
-audit, identical profiles, incomplete embeddings, or an existing output.
+`analyze` reads existing events only. `evaluate` accepts a manifest and an
+output path that does not exist yet. It refuses an absent, empty, malformed, or
+older-than-24-hours evidence report; a non-`ALIGNED` audit; a baseline other
+than `search/profiles/released.json`; a challenger with unchanged behavior
+settings; incomplete embeddings; or any existing output directory.
 
 The fast ACL sample includes every query marked `acl_aware`, up to two queries
 from every query type, each selected query owner, and a stable spread of other
 users. It is only a development gate. Native full ACL remains required before
 release.
+
+Evaluation uses one read-only repeatable-read transaction, so baseline,
+challenger, and ACL checks see one database snapshot. Input hashes are taken
+before search and checked again afterward. Any changed input fails the run.
 
 ## Manifest example
 
@@ -93,6 +99,8 @@ Recommend the separate release gate only when:
 - nDCG@10 improves by at least `0.01`;
 - recall@10 does not decrease;
 - query losses do not outnumber wins.
+- challenger runtime is not more than the larger of 20% or 250 ms above the
+  baseline for the same evaluation queries.
 
 Otherwise reject. A recommendation is not promotion; a human reviews the new
 report and runs the native full ACL gate.
@@ -105,7 +113,8 @@ report and runs the native full ACL gate.
 - Search uses the same ACL-filtered hybrid pipeline for both profiles.
 - Baseline and challenger use the same database snapshot, queries, users, and
   embeddings.
-- Evaluation artifacts include hashes and timestamps proving a new run.
+- Evaluation artifacts include manifest/input hashes, the command, Git commit,
+  and timestamps proving a new run; changing any input during evaluation fails.
 - Released profile is never edited by the runner.
 - `UNCLEAR` or `DRIFT` stops before evaluation and requires user direction.
 

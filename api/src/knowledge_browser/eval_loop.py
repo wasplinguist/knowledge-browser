@@ -1,7 +1,8 @@
 """Deterministic mechanics for behavior-led search experiments."""
 
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from html import escape
 import json
@@ -46,7 +47,24 @@ def experiment_paths(manifest: Mapping[str, Any], root: Path) -> dict[str, Path]
     }
 
 
-def validate_manifest(path: Path, root: Path) -> dict[str, Any]:
+def _timestamp(value: Any, label: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{label} must be an ISO-8601 timestamp") from error
+    if parsed.tzinfo is None:
+        raise ValueError(f"{label} must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def validate_manifest(
+    path: Path,
+    root: Path,
+    *,
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> dict[str, Any]:
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise ValueError("experiment manifest must stay inside the repository")
     manifest = json.loads(path.read_text(encoding="utf-8"))
     missing = [field for field in REQUIRED if field not in manifest]
     if missing:
@@ -61,10 +79,39 @@ def validate_manifest(path: Path, root: Path) -> dict[str, Any]:
     for field, item in paths.items():
         if not item.is_file():
             raise ValueError(f"{field} does not exist")
+    expected_baseline = (root / "search" / "profiles" / "released.json").resolve()
+    if paths["baseline_profile"] != expected_baseline:
+        raise ValueError("baseline must be the repository released profile")
     if paths["baseline_profile"] == paths["challenger_profile"]:
         raise ValueError("baseline and challenger profiles must differ")
-    if paths["baseline_profile"].read_bytes() == paths["challenger_profile"].read_bytes():
-        raise ValueError("baseline and challenger profile content must differ")
+    baseline_profile = load_profile(paths["baseline_profile"])
+    challenger_profile = load_profile(paths["challenger_profile"])
+    if baseline_profile == replace(challenger_profile, name=baseline_profile.name):
+        raise ValueError("challenger behavior settings must differ from released")
+
+    evidence = json.loads(paths["evidence_report"].read_text(encoding="utf-8"))
+    if not isinstance(evidence, dict):
+        raise ValueError("evidence report must be a weekly report object")
+    try:
+        since = _timestamp(evidence["since"], "evidence since")
+        until = _timestamp(evidence["until"], "evidence until")
+        created_at = _timestamp(manifest["created_at"], "experiment created_at")
+        total_searches = evidence["total_searches"]
+        excluded_profiles = evidence["excluded_profiles"]
+    except KeyError as error:
+        raise ValueError("evidence report fields are incomplete") from error
+    current = now().astimezone(timezone.utc)
+    if not since < until or not until <= created_at <= current:
+        raise ValueError("evidence and experiment timestamps are invalid")
+    if current - until > timedelta(days=1):
+        raise ValueError("evidence report is not fresh")
+    if not isinstance(total_searches, int) or total_searches < 1:
+        raise ValueError("evidence report has no useful behavior")
+    if (
+        not isinstance(excluded_profiles, list)
+        or "demo-loop-v1" not in excluded_profiles
+    ):
+        raise ValueError("evidence report must record excluded synthetic profiles")
     queries = load_golden_queries(paths["golden_queries"])
     embeddings = json.loads(paths["query_embeddings"].read_text(encoding="utf-8"))
     missing_embeddings = [item["id"] for item in queries if item["id"] not in embeddings]
@@ -104,7 +151,16 @@ def select_fast_acl_inputs(
             seen.add(query["id"])
             type_counts[kind] = type_counts.get(kind, 0) + 1
     owners = {str(item["as_user"]) for item in selected}
-    selected_users = sorted(set(users))[:user_limit]
+    ordered_users = sorted(set(users))
+    if len(ordered_users) <= user_limit:
+        selected_users = ordered_users
+    elif user_limit == 1:
+        selected_users = [ordered_users[0]]
+    else:
+        selected_users = [
+            ordered_users[round(index * (len(ordered_users) - 1) / (user_limit - 1))]
+            for index in range(user_limit)
+        ]
     selected_users = sorted(set(selected_users).union(owners))
     return selected, selected_users
 
@@ -123,7 +179,12 @@ def decide(evaluation: Mapping[str, Any]) -> str:
         and comparison["overall_delta"]["recall@10"] >= 0
         and len(comparison["losses"]) <= len(comparison["wins"])
     )
-    return "recommend-release-gate" if safe and quality else "reject"
+    latency = evaluation["latency_ms"]
+    acceptable_latency = latency["candidate"] <= max(
+        latency["baseline"] * 1.2,
+        latency["baseline"] + 250,
+    )
+    return "recommend-release-gate" if safe and quality and acceptable_latency else "reject"
 
 
 def execute_evaluation(
@@ -170,8 +231,9 @@ def execute_evaluation(
     selected_memberships = {}
     for user in selected_users:
         resolved = identity(user)
-        if resolved is not None and resolved.id in memberships:
-            selected_memberships[resolved.id] = memberships[resolved.id]
+        if resolved is None or resolved.id not in memberships:
+            raise ValueError(f"fast ACL sample user cannot be resolved: {user}")
+        selected_memberships[resolved.id] = memberships[resolved.id]
     fast_acl = audit_acl(
         selected_memberships,
         documents,
@@ -198,6 +260,7 @@ def _report(manifest: Mapping[str, Any], run: Mapping[str, Any]) -> str:
     candidate = run["candidate"]["overall"]
     comparison = run["comparison"]
     acl = run["fast_acl"]
+    latency = run["latency_ms"]
     hashes = run["provenance"]["sha256"]
     wins = ", ".join(comparison["wins"]) or "None"
     losses = ", ".join(comparison["losses"]) or "None"
@@ -211,6 +274,7 @@ def _report(manifest: Mapping[str, Any], run: Mapping[str, Any]) -> str:
 <h2>Behavior → idea</h2><div class="card"><p><b>Evidence:</b> {escape(manifest['evidence_report'])}</p><p>{escape(manifest['insight'])}</p><p><b>Hypothesis:</b> {escape(manifest['hypothesis'])}</p><p><b>Change:</b> {escape(manifest['implementation'])}</p></div>
 <h2>Fresh comparison</h2><div class="card"><p>nDCG@10: {baseline['ndcg@10']:.3f} → {candidate['ndcg@10']:.3f}</p><p>Recall@10: {baseline['recall@10']:.3f} → {candidate['recall@10']:.3f}</p><p>Wins ({len(comparison['wins'])}): {escape(wins)}</p><p>Losses ({len(comparison['losses'])}): {escape(losses)}</p></div>
 <h2>Fast ACL sample</h2><div class="card"><p>{acl['pairs']} query/user pairs</p><p>Root leaks: {len(acl['root_leaks'])} · Child leaks: {len(acl['child_leaks'])}</p><p>This is not the native full ACL release gate.</p></div>
+<h2>Latency</h2><div class="card"><p>Baseline: {latency['baseline']} ms · Challenger: {latency['candidate']} ms</p></div>
 <h2>Input hashes</h2><div class="card"><ul>{hash_rows}</ul></div>
 <h2>Decision</h2><div class="card"><b>{run['decision']}</b><p>No profile was promoted automatically.</p></div>
 </body></html>"""
@@ -226,29 +290,28 @@ def run_experiment(
     git_sha: str = "unknown",
     command: Sequence[str] = (),
 ) -> Path:
-    if output_dir.exists() and any(output_dir.iterdir()):
-        raise ValueError("output directory must be new and empty")
-    manifest = validate_manifest(manifest_path, root)
+    if output_dir.exists():
+        raise ValueError("output directory must not already exist")
+    started_at = now().astimezone(timezone.utc)
+    manifest = validate_manifest(manifest_path, root, now=lambda: started_at)
     paths = experiment_paths(manifest, root)
+    input_paths = {"manifest": manifest_path, **paths}
+    input_hashes = {name: _hash(item) for name, item in input_paths.items()}
     evaluation = evaluate(manifest, paths)
+    if input_hashes != {name: _hash(item) for name, item in input_paths.items()}:
+        raise ValueError("experiment inputs changed during evaluation")
     run = {
         **evaluation,
         "experiment_id": manifest["id"],
-        "created_at": now().astimezone(timezone.utc).isoformat(),
+        "created_at": started_at.isoformat(),
         "decision": decide(evaluation),
         "provenance": {
             "git_sha": git_sha,
             "command": list(command),
-            "sha256": {
-                "evidence": _hash(paths["evidence_report"]),
-                "baseline_profile": _hash(paths["baseline_profile"]),
-                "challenger_profile": _hash(paths["challenger_profile"]),
-                "golden_queries": _hash(paths["golden_queries"]),
-                "query_embeddings": _hash(paths["query_embeddings"]),
-            },
+            "sha256": input_hashes,
         },
     }
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=False)
     (output_dir / "run.json").write_text(
         json.dumps(run, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

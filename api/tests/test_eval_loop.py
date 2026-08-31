@@ -14,17 +14,24 @@ from knowledge_browser.eval_loop import (
 
 
 pytestmark = pytest.mark.unit
+NOW = datetime(2026, 9, 1, 1, tzinfo=timezone.utc)
 
 
 def _manifest(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
     (root / "evidence").mkdir()
-    (root / "profiles").mkdir()
+    (root / "search" / "profiles" / "candidates").mkdir(parents=True)
     (root / "eval").mkdir()
-    (root / "evidence" / "weekly.json").write_text('{"total_searches": 3}')
-    (root / "profiles" / "released.json").write_text(
+    (root / "evidence" / "weekly.json").write_text(json.dumps({
+        "since": "2026-08-25T00:00:00+00:00",
+        "until": "2026-09-01T00:00:00+00:00",
+        "total_searches": 3,
+        "excluded_profiles": ["demo-loop-v1"],
+    }))
+    (root / "search" / "profiles" / "released.json").write_text(
         '{"name":"released","query_expansions":{}}'
     )
-    (root / "profiles" / "candidate.json").write_text(
+    (root / "search" / "profiles" / "candidates" / "candidate.json").write_text(
         '{"name":"candidate","query_expansions":{"NREL":"Nimbus Relay"}}'
     )
     (root / "eval" / "queries.json").write_text(json.dumps([{
@@ -47,8 +54,8 @@ def _manifest(root: Path) -> Path:
         "target_metrics": ["ndcg@10"],
         "regression_risk": "Known Jira keys may move.",
         "intent_audit": {"verdict": "ALIGNED", "evidence": "weekly"},
-        "baseline_profile": "profiles/released.json",
-        "challenger_profile": "profiles/candidate.json",
+        "baseline_profile": "search/profiles/released.json",
+        "challenger_profile": "search/profiles/candidates/candidate.json",
         "golden_queries": "eval/queries.json",
         "query_embeddings": "eval/embeddings.json",
         "golden_changes": [],
@@ -78,20 +85,57 @@ def _evaluation():
 
 def test_manifest_requires_fresh_evidence_aligned_audit_and_distinct_profiles(tmp_path):
     path = _manifest(tmp_path)
-    manifest = validate_manifest(path, tmp_path)
+    manifest = validate_manifest(path, tmp_path, now=lambda: NOW)
     assert manifest["id"] == "exp-nrel"
 
     data = json.loads(path.read_text())
     data["intent_audit"]["verdict"] = "UNCLEAR"
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="ALIGNED"):
-        validate_manifest(path, tmp_path)
+        validate_manifest(path, tmp_path, now=lambda: NOW)
 
     data["intent_audit"]["verdict"] = "ALIGNED"
     data["challenger_profile"] = data["baseline_profile"]
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="differ"):
-        validate_manifest(path, tmp_path)
+        validate_manifest(path, tmp_path, now=lambda: NOW)
+
+
+def test_manifest_rejects_stale_empty_or_malformed_behavior_evidence(tmp_path):
+    path = _manifest(tmp_path)
+    evidence_path = tmp_path / "evidence" / "weekly.json"
+    evidence = json.loads(evidence_path.read_text())
+    evidence["until"] = "2026-08-26T00:00:00+00:00"
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="fresh"):
+        validate_manifest(path, tmp_path, now=lambda: NOW)
+
+    evidence["until"] = "2026-09-01T00:00:00+00:00"
+    evidence["total_searches"] = 0
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="useful"):
+        validate_manifest(path, tmp_path, now=lambda: NOW)
+
+    evidence["total_searches"] = 3
+    evidence["excluded_profiles"] = []
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="excluded"):
+        validate_manifest(path, tmp_path, now=lambda: NOW)
+
+
+def test_manifest_requires_released_baseline_and_real_behavior_change(tmp_path):
+    path = _manifest(tmp_path)
+    data = json.loads(path.read_text())
+    data["baseline_profile"] = data["challenger_profile"]
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="released profile"):
+        validate_manifest(path, tmp_path, now=lambda: NOW)
+
+    path = _manifest(tmp_path / "second")
+    candidate = tmp_path / "second" / "search" / "profiles" / "candidates" / "candidate.json"
+    candidate.write_text('{"name":"renamed","query_expansions":{}}')
+    with pytest.raises(ValueError, match="behavior settings"):
+        validate_manifest(path, tmp_path / "second", now=lambda: NOW)
 
 
 def test_manifest_rejects_bad_or_ambiguous_query_embeddings(tmp_path):
@@ -99,7 +143,7 @@ def test_manifest_rejects_bad_or_ambiguous_query_embeddings(tmp_path):
     embeddings_path = tmp_path / "eval" / "embeddings.json"
     embeddings_path.write_text(json.dumps({"q1": [0.0]}))
     with pytest.raises(ValueError, match="1,536"):
-        validate_manifest(path, tmp_path)
+        validate_manifest(path, tmp_path, now=lambda: NOW)
 
     data = json.loads((tmp_path / "eval" / "queries.json").read_text())
     data.append({**data[0], "id": "q2"})
@@ -109,7 +153,7 @@ def test_manifest_rejects_bad_or_ambiguous_query_embeddings(tmp_path):
         "q2": [1.0] * 1536,
     }))
     with pytest.raises(ValueError, match="same text"):
-        validate_manifest(path, tmp_path)
+        validate_manifest(path, tmp_path, now=lambda: NOW)
 
 
 def test_fast_acl_sample_is_deterministic_and_includes_acl_queries_and_owners():
@@ -127,6 +171,7 @@ def test_fast_acl_sample_is_deterministic_and_includes_acl_queries_and_owners():
     assert {"u1", "u2", "u3"} <= set(selected_users)
     assert selected_users == select_fast_acl_inputs(queries, users)[1]
     assert len(selected_queries) * len(selected_users) < len(queries) * len(users)
+    assert "u18" in selected_users
 
 
 def test_decision_recommends_only_the_separate_release_gate():
@@ -134,6 +179,9 @@ def test_decision_recommends_only_the_separate_release_gate():
     worse = _evaluation()
     worse["fast_acl"]["child_leaks"] = [{"document": "secret"}]
     assert decide(worse) == "reject"
+    slow = _evaluation()
+    slow["latency_ms"] = {"baseline": 100, "candidate": 500}
+    assert decide(slow) == "reject"
 
 
 def test_run_requires_new_output_and_writes_hashed_json_and_easy_html(tmp_path):
@@ -145,7 +193,7 @@ def test_run_requires_new_output_and_writes_hashed_json_and_easy_html(tmp_path):
         output,
         root=tmp_path,
         evaluate=lambda _manifest, _paths: _evaluation(),
-        now=lambda: datetime(2026, 9, 1, 1, tzinfo=timezone.utc),
+        now=lambda: NOW,
         git_sha="abc123",
         command=["scripts/run_eval_loop.py", "evaluate"],
     )
@@ -158,18 +206,42 @@ def test_run_requires_new_output_and_writes_hashed_json_and_easy_html(tmp_path):
         "scripts/run_eval_loop.py", "evaluate"
     ]
     assert set(payload["provenance"]["sha256"]) == {
-        "evidence", "baseline_profile", "challenger_profile", "golden_queries",
-        "query_embeddings",
+        "manifest", "evidence_report", "baseline_profile", "challenger_profile",
+        "golden_queries", "query_embeddings",
     }
     assert "People rewrite NREL" in html
     assert "0.500" in html and "0.530" in html
     assert "13" in html
     assert "q1" in html
-    assert payload["provenance"]["sha256"]["evidence"] in html
+    assert payload["provenance"]["sha256"]["evidence_report"] in html
     assert "No profile was promoted" in html
 
-    with pytest.raises(ValueError, match="new and empty"):
+    empty = tmp_path / "already-exists"
+    empty.mkdir()
+    with pytest.raises(ValueError, match="must not already exist"):
+        run_experiment(
+            path, empty, root=tmp_path,
+            evaluate=lambda _manifest, _paths: _evaluation(),
+            now=lambda: NOW,
+        )
+
+    with pytest.raises(ValueError, match="must not already exist"):
         run_experiment(
             path, output, root=tmp_path,
             evaluate=lambda _manifest, _paths: _evaluation(),
+            now=lambda: NOW,
+        )
+
+
+def test_run_rejects_inputs_changed_during_evaluation(tmp_path):
+    path = _manifest(tmp_path)
+
+    def change_input(_manifest, paths):
+        paths["evidence_report"].write_text('{"changed": true}')
+        return _evaluation()
+
+    with pytest.raises(ValueError, match="changed during evaluation"):
+        run_experiment(
+            path, tmp_path / "output", root=tmp_path,
+            evaluate=change_input, now=lambda: NOW,
         )

@@ -25,7 +25,7 @@ def _outside_repo(path: Path) -> Path:
 def analyze(days: int, output_dir: Path, excluded_profiles: tuple[str, ...]) -> Path:
     until = datetime.now(timezone.utc)
     with connection() as conn:
-        conn.execute("SET TRANSACTION READ ONLY")
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         report = build_weekly_report(
             conn, until - timedelta(days=days), until, excluded_profiles
         )
@@ -38,7 +38,7 @@ def evaluate(experiment: Path, output_dir: Path) -> Path:
         capture_output=True, text=True,
     ).stdout.strip()
     with connection() as conn:
-        conn.execute("SET TRANSACTION READ ONLY")
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         return run_experiment(
             experiment.resolve(),
             _outside_repo(output_dir),
