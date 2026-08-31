@@ -139,6 +139,38 @@ def semantic_search(
     return [_result(row) for row in rows]
 
 
+def read_chunk(
+    conn,
+    user_id: UUID | str,
+    source: str,
+    chunk_id: str,
+) -> dict[str, Any] | None:
+    row = conn.execute(
+        f"""
+        SELECT chunks.id, chunks.field, chunks.text, root.id, root.external_id,
+               root.title, root.source, root.author, documents.author,
+               root.container, root.source_updated_at, root.url,
+               documents.id <> root.id, root.source_created_at,
+               chunks.chunk_index, documents.external_id,
+               documents.source_created_at, documents.source_updated_at
+        FROM chunks
+        JOIN documents ON documents.id = chunks.document_id
+        JOIN documents root ON root.id = documents.root_document_id
+        WHERE root.root_document_id = root.id
+          AND {allowed_document_sql()}
+          AND {allowed_document_sql(document_alias="root")}
+          AND chunks.source = %(source)s
+          AND chunks.id = %(chunk_id)s
+        """,
+        {"user_id": user_id, "source": source, "chunk_id": chunk_id},
+    ).fetchone()
+    if row is None:
+        return None
+    result = _result(row)
+    result["text"] = row[2]
+    return result
+
+
 def hybrid_search(
     conn,
     user_id: UUID | str,

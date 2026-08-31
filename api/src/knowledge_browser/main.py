@@ -2,6 +2,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
 import time
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import FastAPI, Header, Request, Response
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .analytics import record_click, record_search
+from .answer import AnswerExecutionError, answer_question
 from .db import connection
 from .profiles import SearchProfile, expand_query, load_profile
 from .repository import resolve_identity
@@ -25,6 +27,13 @@ class ClickRequest(BaseModel):
     rank: int
 
 
+class AnswerRequest(BaseModel):
+    question: str
+    source: str | None = None
+    mode: Literal["auto", "fast", "deep"] = "auto"
+    debug: bool = False
+
+
 def _error(code: str, message: str, status_code: int = 400) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -36,6 +45,7 @@ def create_app(
     connection_factory: Callable[[], AbstractContextManager] = connection,
     embed: Callable[[str], list[float] | None] | None = None,
     profile: SearchProfile | None = None,
+    answer_client: Any | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="Knowledge Browser",
@@ -171,6 +181,56 @@ def create_app(
             return _error(
                 "search_event_unavailable", "search event is unavailable", 503
             )
+
+    @app.post("/api/answer")
+    def answer_route(
+        body: AnswerRequest,
+        x_demo_user_id: str | None = Header(default=None),
+    ):
+        if not x_demo_user_id:
+            return _error("missing_demo_user", "X-Demo-User-Id is required")
+        if not body.question.strip():
+            return _error("invalid_query", "question must not be empty")
+        if body.source and body.source not in SOURCES:
+            return _error("invalid_source", "source is invalid")
+        if answer_client is None:
+            return _error(
+                "answer_provider_unavailable",
+                "AI answer provider is unavailable",
+                503,
+            )
+        try:
+            with connection_factory() as conn:
+                identity = resolve_identity(conn, x_demo_user_id)
+                if identity is None:
+                    return _error("unknown_demo_user", "select a valid demo user")
+                return answer_question(
+                    conn,
+                    str(identity.id),
+                    body.question.strip(),
+                    embed or (lambda _query: None),
+                    answer_client,
+                    source=body.source,
+                    mode=body.mode,
+                    include_trace=body.debug,
+                    profile=search_profile,
+                )
+        except AnswerExecutionError as error:
+            result = {
+                "answer": None,
+                "citations": [],
+                "follow_ups": [],
+                "error": {
+                    "code": "answer_unavailable",
+                    "message": "AI answer is unavailable",
+                },
+                "execution": error.execution,
+            }
+            if body.debug:
+                result["trace"] = error.trace
+            return result
+        except Exception:
+            return _error("answer_unavailable", "AI answer is unavailable", 503)
 
     return app
 

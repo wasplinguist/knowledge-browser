@@ -8,8 +8,11 @@ through approved feature contracts.
 The product can read and verify the existing PostgreSQL 17/pgvector database.
 It also supports ACL-safe keyword and semantic retrieval, alias expansion,
 reciprocal rank fusion, and one result per root document. The API exposes
-demo-user selection, search, source facets, and safe click analytics. RAG and
-the full web experience arrive in later PRs.
+demo-user selection, search, source facets, and safe click analytics. The API
+also supports bounded grounded answers when `create_app` receives an
+OpenAI-compatible Responses client. Answer citations are limited to ACL-safe
+chunks opened during that request. Tests use fake clients and make no paid
+calls. The full web experience arrives in a later PR.
 
 ## Requirements
 

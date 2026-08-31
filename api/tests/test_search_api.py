@@ -1,4 +1,6 @@
 from contextlib import contextmanager
+import json
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -13,12 +15,16 @@ COMPANY_USER = "00000000-0000-0000-0000-000000000001"
 OTHER_USER = "00000000-0000-0000-0000-000000000004"
 
 
-def _client(db, embed=lambda _query: None):
+def _client(db, embed=lambda _query: None, answer_client=None):
     @contextmanager
     def connection_factory():
         yield db
 
-    return TestClient(create_app(connection_factory=connection_factory, embed=embed))
+    return TestClient(create_app(
+        connection_factory=connection_factory,
+        embed=embed,
+        answer_client=answer_client,
+    ))
 
 
 def test_search_returns_shared_results_facets_and_safe_event(db):
@@ -150,3 +156,41 @@ def test_click_is_owner_only_and_must_match_the_stored_rank(db):
     assert denied.status_code == wrong_rank.status_code == 404
     assert allowed.status_code == duplicate.status_code == 204
     assert db.execute("SELECT count(*) FROM search_clicks").fetchone()[0] == 1
+
+
+def test_answer_route_uses_demo_identity_and_returns_grounded_shape(db):
+    class Responses:
+        def create(self, **_request):
+            return SimpleNamespace(
+                id="final",
+                output=[],
+                output_text=json.dumps({
+                    "answer": "No opened evidence yet.",
+                    "evidence_status": "incomplete",
+                    "citations": [],
+                }),
+            )
+
+    response = _client(
+        db, answer_client=SimpleNamespace(responses=Responses())
+    ).post(
+        "/api/answer",
+        headers={"X-Demo-User-Id": COMPANY_USER},
+        json={"question": "Who owns Company?", "mode": "fast", "debug": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "fast"
+    assert response.json()["evidence_status"] == "incomplete"
+    assert response.json()["trace"] == []
+
+
+def test_answer_route_rejects_unknown_mode(db):
+    response = _client(db).post(
+        "/api/answer",
+        headers={"X-Demo-User-Id": COMPANY_USER},
+        json={"question": "Who owns Company?", "mode": "slow"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
