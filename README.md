@@ -108,7 +108,9 @@ Only uncached sentences need the configured OpenAI API key.
 
 If a manually created container already uses the name
 `knowledge-redwood-db`, `start` stops safely. Remove that exact container only
-after confirming it is the old Redwood pilot, then run `start` again.
+after confirming it is the old Redwood pilot, then run `start` again. The
+`reset` and `run` commands also refuse to write until that Compose-managed
+container exists.
 
 ## Product behavior
 

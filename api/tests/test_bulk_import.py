@@ -160,6 +160,7 @@ def test_document_batch_is_idempotent_and_rejects_changed_chunk_content(
     first = write_document_batch(db, run, [record], identities, embeddings)
     second = write_document_batch(db, run, [record], identities, embeddings)
 
+    assert first.source == "jira"
     assert first.documents == 1
     assert first.chunks > 0
     assert first.sentences > 0

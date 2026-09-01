@@ -33,6 +33,16 @@ require_safe_container() {
   fi
 }
 
+require_managed_container() {
+  local owner
+  owner="$(container_owner)" || owner=""
+  [ "$owner" = "$compose_project redwood-db" ] || {
+    echo "knowledge-redwood-db is not managed by this Compose project;" \
+      "run start or complete the explicit handoff first." >&2
+    return 1
+  }
+}
+
 load_environment
 python_bin="${PYTHON_BIN:-$project_root/api/.venv/bin/python}"
 if [ ! -x "$python_bin" ] && [ -z "${PYTHON_BIN:-}" ]; then
@@ -63,6 +73,7 @@ case "$command" in
       -p "$compose_project" --profile redwood stop redwood-db
     ;;
   validate|reset|run|status|verify)
+    case "$command" in reset|run) require_managed_container ;; esac
     export POSTGRES_HOST="127.0.0.1"
     export POSTGRES_PORT="${REDWOOD_POSTGRES_PORT:-5433}"
     export POSTGRES_DB="knowledge_redwood"

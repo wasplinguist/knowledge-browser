@@ -12,7 +12,7 @@ import psycopg
 from .bulk_import import run_import
 from .bulk_state import assert_redwood_database, reset_redwood_database
 from .config import database_url
-from .dataset import SOURCES, validate_streaming_dataset
+from .dataset import validate_streaming_dataset
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -81,28 +81,11 @@ def _parser():
     return parser
 
 
-def _batch_sources(dataset, reports):
-    source_index = 0
-    sources = list(SOURCES)
-    for report in reports:
-        while source_index < len(sources):
-            source = sources[source_index]
-            size = (dataset.root / "artifacts" / f"{source}.jsonl").stat().st_size
-            if size:
-                break
-            source_index += 1
-        if source_index == len(sources):
-            raise RuntimeError("bulk report does not match the dataset")
-        yield source, report
-        if report.next_offset >= size:
-            source_index += 1
-
-
-def _print_run(result, dataset, started):
-    for source, report in _batch_sources(dataset, result.batches):
+def _print_run(result, started):
+    for report in result.batches:
         elapsed = time.monotonic() - started
         print(
-            f"source={source} next_line={report.next_line} "
+            f"source={report.source} next_line={report.next_line} "
             f"documents={report.documents} sentences={report.sentences} "
             f"elapsed_seconds={elapsed:.2f} provider_calls={report.provider_calls}"
         )
@@ -123,7 +106,8 @@ def _print_status(url):
             return
         run = conn.execute(
             """
-            SELECT id, status, safe_error,
+            SELECT id, status, safe_error, dataset_version, manifest_digest,
+                   embedding_model, embedding_dimensions,
                    EXTRACT(EPOCH FROM (pg_catalog.now() - started_at))
             FROM public.bulk_import_runs
             ORDER BY started_at DESC
@@ -133,11 +117,22 @@ def _print_status(url):
         if run is None:
             print("No Redwood import run.")
             return
-        run_id, status, safe_error, elapsed = run
+        (
+            run_id,
+            status,
+            safe_error,
+            dataset_version,
+            manifest_digest,
+            embedding_model,
+            dimensions,
+            elapsed,
+        ) = run
         safe_error = safe_error if safe_error in SAFE_ERRORS else None
         suffix = f" safe_error={safe_error}" if safe_error else ""
         print(
-            f"run={run_id} status={status} "
+            f"run={run_id} status={status} dataset_version={dataset_version} "
+            f"manifest_digest={manifest_digest} embedding_model={embedding_model} "
+            f"dimensions={dimensions} "
             f"elapsed_seconds={float(elapsed):.2f}{suffix}"
         )
         progress = conn.execute(
@@ -185,7 +180,7 @@ def main(argv=None):
                 document_batch_size=args.document_batch_size,
                 embedding_batch_size=args.embedding_batch_size,
             )
-            _print_run(result, dataset, started)
+            _print_run(result, started)
         elif args.command == "status":
             _print_status(_database_url(args))
         else:

@@ -135,7 +135,7 @@ def test_run_prints_safe_batch_progress(monkeypatch, tmp_path, capsys):
             run_id="run-1",
             complete=False,
             provider_calls=2,
-            batches=(BatchReport(2, 3, 4, 3, 8, 2),),
+            batches=(BatchReport(2, 3, 4, 3, 8, 2, "slack"),),
         ),
     )
     times = iter((10.0, 11.25))
@@ -151,9 +151,90 @@ def test_run_prints_safe_batch_progress(monkeypatch, tmp_path, capsys):
     assert "two" not in output
 
 
-def test_status_never_creates_embedding_client(monkeypatch):
+def test_resumed_run_prints_the_batch_source_not_the_first_dataset_source(
+    monkeypatch, tmp_path, capsys
+):
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    for source in ("slack", "jira", "github", "confluence"):
+        (artifacts / f"{source}.jsonl").write_bytes(b"record\n")
+    _safe_cli(monkeypatch, SimpleNamespace(root=tmp_path))
+    monkeypatch.setattr(
+        bulk_cli,
+        "run_import",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            run_id="run-1",
+            complete=False,
+            provider_calls=1,
+            batches=(
+                SimpleNamespace(
+                    source="jira",
+                    documents=1,
+                    chunks=2,
+                    sentences=3,
+                    next_line=42,
+                    next_offset=999,
+                    provider_calls=1,
+                ),
+            ),
+        ),
+    )
+    times = iter((10.0, 11.0))
+    monkeypatch.setattr(bulk_cli.time, "monotonic", lambda: next(times))
+
+    assert bulk_cli.main(["run", "--data", str(tmp_path)]) == 0
+    output = capsys.readouterr().out
+    assert "source=jira next_line=42" in output
+    assert "source=slack" not in output
+
+
+class _StatusRows:
+    def __init__(self, *, one=None, rows=()):
+        self.one = one
+        self.rows = rows
+
+    def fetchone(self):
+        return self.one
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class _StatusConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def execute(self, statement, _params=None):
+        if "to_regclass" in statement:
+            return _StatusRows(one=("bulk_import_runs",))
+        if "FROM public.bulk_import_runs" in statement:
+            return _StatusRows(
+                one=(
+                    "run-1",
+                    "loading",
+                    None,
+                    "redwood-v1",
+                    "abc123",
+                    "text-embedding-3-small",
+                    1536,
+                    12.5,
+                )
+            )
+        return _StatusRows(rows=(("jira", 42, 10, 20, 30),))
+
+
+def test_status_prints_safe_manifest_identity_without_embedding_client(
+    monkeypatch, capsys
+):
     monkeypatch.setattr(bulk_cli, "database_url", lambda: REDWOOD_URL)
-    monkeypatch.setattr(bulk_cli, "_print_status", lambda _url: None)
+    monkeypatch.setattr(
+        bulk_cli.psycopg,
+        "connect",
+        lambda _url: _StatusConnection(),
+    )
     monkeypatch.setattr(
         bulk_cli,
         "_openai_client",
@@ -161,6 +242,12 @@ def test_status_never_creates_embedding_client(monkeypatch):
     )
 
     assert bulk_cli.main(["status"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "run=run-1 status=loading dataset_version=redwood-v1 "
+        "manifest_digest=abc123 embedding_model=text-embedding-3-small "
+        "dimensions=1536 elapsed_seconds=12.50",
+        "source=jira next_line=42 documents=10 chunks=20 sentences=30",
+    ]
 
 
 def _executable(path: Path, text: str) -> Path:
@@ -200,6 +287,43 @@ def test_wrapper_refuses_unmanaged_container_name_conflict(tmp_path):
         "remove it explicitly before start.\n"
     )
     assert "compose --profile redwood up" not in log.read_text()
+
+
+@pytest.mark.parametrize("command", [("reset", "--yes"), ("run",)])
+def test_wrapper_refuses_writes_to_an_unmanaged_container(tmp_path, command):
+    marker = tmp_path / "python-ran"
+    docker = _executable(
+        tmp_path / "docker",
+        "#!/usr/bin/env bash\n"
+        "if [ \"$1\" = inspect ]; then exit 0; fi\n",
+    )
+    python = _executable(
+        tmp_path / "python",
+        "#!/usr/bin/env bash\n"
+        f"touch {marker}\n"
+        "printf '%s\\n' 'postgresql://postgres:postgres@127.0.0.1:5433/knowledge_redwood'\n",
+    )
+    env = {
+        **os.environ,
+        "DOCKER_BIN": str(docker),
+        "PYTHON_BIN": str(python),
+    }
+
+    completed = subprocess.run(
+        ["bash", str(SCRIPT), *command],
+        cwd=SCRIPT.parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert completed.stderr == (
+        "knowledge-redwood-db is not managed by this Compose project; "
+        "run start or complete the explicit handoff first.\n"
+    )
+    assert not marker.exists()
 
 
 def test_wrapper_start_finds_compose_file_outside_repo(tmp_path):

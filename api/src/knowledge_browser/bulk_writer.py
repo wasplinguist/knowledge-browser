@@ -31,6 +31,7 @@ class BatchReport:
     next_line: int
     next_offset: int
     provider_calls: int
+    source: str
 
 
 def stable_uuid(kind: str, key: str) -> UUID:
@@ -426,4 +427,5 @@ def write_document_batch(conn, run, records, identities, embeddings):
         last.line_number + 1,
         last.next_offset,
         0,
+        last.source,
     )
