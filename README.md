@@ -1,174 +1,185 @@
 # Knowledge Browser
 
-Knowledge Browser is an ACL-safe company knowledge search product being rebuilt
-through approved feature contracts.
+Knowledge Browser is a local company-knowledge search product for Slack, Jira,
+Confluence, and GitHub content. It combines ACL-safe hybrid retrieval with
+grounded AI answers and source-aware document views.
 
-## Current scope
-
-The product can read and verify the existing PostgreSQL 17/pgvector database.
-It also supports ACL-safe keyword and semantic retrieval, alias expansion,
-reciprocal rank fusion, one result per root document, and query-aware enterprise
-ranking for freshness, source authority, exact Jira keys, and primary-project
-context. The API exposes
-demo-user selection, search, source facets, and safe click analytics. The API
-also supports bounded grounded answers through `OPENAI_API_KEY` or an injected
-OpenAI-compatible Responses client. `ANSWER_MODEL` selects the answer model.
-Embedding failure keeps keyword search available. Answer citations are limited
-to ACL-safe chunks opened during that request. Tests use fake clients and make
-no paid calls. The web app provides search, grounded answers, deduplicated provenance,
-source facets, and ACL-safe local panels for Jira, Confluence, Slack, and
-GitHub data.
+The repository includes the API, web app, PostgreSQL development service,
+company dataset, released search profile, evaluation queries, and release
+safety checks. Demo identity is used only to exercise document permissions; it
+is not production authentication.
 
 ## Requirements
 
 - Python 3.12
 - Node.js 22.22.2 or newer
 - Docker with Compose
+- An OpenAI API key for first-run embeddings and grounded answers
 
-## Start locally
+## Install
 
-Copy `.env.example` to `.env`, add an `OPENAI_API_KEY`, then run:
-
-```bash
-./run_server.sh
-```
-
-The command starts PostgreSQL, initializes an empty database from the committed
-company dataset, verifies compatibility, and starts the API at
-`http://127.0.0.1:8000` and web app at `http://127.0.0.1:5173`. Existing
-exported environment variables take precedence over values in `.env`; later
-runs reuse a compatible populated database without importing it again.
-
-## API
+Create the Python environment and install the web dependencies:
 
 ```bash
+cd /path/to/knowledge-browser
 python3.12 -m venv api/.venv
 api/.venv/bin/python -m pip install -e './api[dev]'
-api/.venv/bin/uvicorn knowledge_browser.main:app --reload --app-dir api/src
+(cd web && npm ci)
 ```
 
-Open `http://127.0.0.1:8000/api/health`.
-
-For local demo search, first read `/api/demo-users`, then send one returned ID
-as `X-Demo-User-Id` to `/api/search?q=...`. This header is demo identity only;
-it is not real login.
-
-## Web
+Create the local environment file and add your OpenAI API key:
 
 ```bash
-cd web
-npm ci
-npm run dev
+cp .env.example .env
 ```
 
-Open the Vite URL printed in the terminal.
+```dotenv
+OPENAI_API_KEY=your-key-here
+```
 
-## PostgreSQL
+Do not commit `.env`.
 
-By default, the API connects to the existing local `knowledge_search` database
-as `postgres` on `localhost:5432`. `DATABASE_URL` takes precedence. Otherwise,
-set any of `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and
-`POSTGRES_PASSWORD`.
+## Run
+
+From any directory, run:
 
 ```bash
-docker compose up -d db
-docker compose ps
+/path/to/knowledge-browser/run_server.sh
 ```
 
-Use a different `POSTGRES_PORT` and a dedicated database whose name contains
-`_test` for each parallel worktree. Tests default to
-`knowledge_browser_compat_test` and never write to `knowledge_search`.
+On the first run, the script:
 
-Check an existing populated database without migrating or ingesting data:
+1. starts PostgreSQL with Docker Compose;
+2. waits for the database to become ready;
+3. creates the Knowledge Browser schema;
+4. validates and imports the committed `data/company/` dataset;
+5. creates embeddings and checks database compatibility;
+6. starts the FastAPI and React/Vite development servers.
+
+The first import creates 100 users, 1,000 documents, 13,145 chunks, and 16,520
+sentences. Later runs verify and reuse that database instead of importing it
+again.
+
+Open:
+
+- Web: <http://127.0.0.1:5173>
+- API health: <http://127.0.0.1:8000/api/health>
+
+Press `Ctrl+C` to stop the API and web servers. PostgreSQL continues running
+until you run `docker compose down`.
+
+### Database safety
+
+First-run setup never resets or replaces data. It stops when it finds a
+partially initialized or incompatible database. A compatible populated
+database is reused without another import.
+
+`DATABASE_URL` takes precedence when set. Otherwise the application uses the
+`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and
+`POSTGRES_PASSWORD` values in `.env`. Already exported environment variables
+override `.env`. When an explicit `DATABASE_URL` is supplied, startup does not
+launch the project Docker database.
+
+`API_PORT` and `WEB_PORT` change the local server ports. `ANSWER_MODEL` selects
+the grounded-answer model. If a query embedding fails after setup, keyword
+search remains available.
+
+## Product behavior
+
+Choose a user from the Demo user menu, then search across Slack, Jira,
+Confluence, and GitHub. The selected identity controls which documents the API
+may retrieve, open, and cite.
+
+Search supports:
+
+- keyword and semantic retrieval;
+- exact Jira keys;
+- reciprocal-rank fusion and one result per root document;
+- freshness, source-authority, and primary-project reranking;
+- source facets and local source-detail panels;
+- grounded answers with ACL-safe citations.
+
+Search snippets are leads rather than citable evidence. The answer workflow
+must open a chunk before citing it, and the server validates permissions,
+budgets, evidence state, and citations throughout the request.
+
+## Architecture
+
+The API package lives in `api/src/knowledge_browser/`, the React application in
+`web/`, the database schema in `db/init/`, and the committed company data in
+`data/company/`. The released retrieval configuration is
+`search/profiles/released.json`.
+
+Search applies ACL filtering inside SQL before ranking or reading content. The
+same released retrieval profile is used for result lists and initial answer
+evidence, so grounded answers cannot bypass search permissions.
+
+The main API routes are:
+
+- `GET /api/health`
+- `GET /api/demo-users`
+- `GET /api/search`
+- `POST /api/answer`
+- `GET /api/documents/{source}/{external_id}`
+- `POST /api/search-events/{search_id}/click`
+
+## Evaluation
+
+Committed evaluation definitions live in `eval/`. Retrieval evaluation covers
+known-item, semantic, multi-hop, temporal, alias, personalized, and negative
+queries. ACL evaluation checks configured user/query pairs and requires zero
+root or matched-child leaks.
+
+These evaluations compare controlled Knowledge Browser search profiles. They
+do not by themselves prove superiority over the native search products of
+Slack, Jira, Confluence, or GitHub.
+
+### Eval-driven development
+
+Generate a fresh behavior report outside every Git worktree:
 
 ```bash
-DATABASE_URL='postgresql://postgres:postgres@localhost:5432/knowledge_search' \
-  api/.venv/bin/python -m knowledge_browser.db_compat
+PYTHONPATH=api/src api/.venv/bin/python scripts/run_eval_loop.py analyze \
+  --days 7 \
+  --output-dir /tmp/knowledge-browser-behavior
 ```
 
-The command is read-only and prints compatibility status plus aggregate counts;
-it does not print credentials or company content.
+Run a committed challenger from a clean worktree:
 
-The released retrieval settings are stored in
-`search/profiles/released.json`. Retrieval accepts a query embedding from its
-caller; provider calls are added with the API feature.
+```bash
+PYTHONPATH=api/src api/.venv/bin/python scripts/run_eval_loop.py evaluate \
+  --experiment eval/experiments/<id>/experiment.json \
+  --output-dir /tmp/knowledge-browser-runs/<id>
+```
+
+The loop produces evidence for human review. It never promotes a search profile
+automatically.
 
 ## Verification
 
 ```bash
-# Fast edit loop
-api/.venv/bin/python -m pytest -q -m unit api/tests
-
-# Normal API pull-request checks
-api/.venv/bin/python -m pytest -q -m "unit or integration" api/tests
-
-# Search and grounded-RAG evaluation, without nightly full-corpus work
+# Normal API checks; expensive release gates stay excluded
 api/.venv/bin/python -m pytest -q \
-  -m "(search_eval or rag_eval) and not nightly" api/tests
+  -m "not (full_acl or full_retrieval or nightly)" api/tests
 
-# Marker safety check
-api/.venv/bin/python -m pytest --collect-only -q --strict-markers api/tests
-
+# Web checks
 (cd web && npm test -- --run)
 (cd web && npm run build)
+
+# Startup shell checks
+scripts/test_setup_database.sh
+scripts/test_run_server.sh
+
+# Configuration and formatting checks
 docker compose config --quiet
 git diff --check
 ```
 
-The exhaustive ACL group is intentionally separate from normal work:
+The exhaustive `full_retrieval` and `full_acl` groups are separate manual or
+nightly release gates.
 
-```bash
-# Manual/nightly full retrieval quality gate. The optional cache avoids
-# requesting embeddings that already exist.
-NATIVE_EVAL_DATABASE_URL='postgresql://.../knowledge_search_eval' \
-NATIVE_EMBEDDING_CACHE='/path/to/embeddings.json' \
-OPENAI_API_KEY='...' EVALUATION_REPORT_PATH='/tmp/retrieval.json' \
-  api/.venv/bin/python -m pytest -q -s -m full_retrieval api/tests
+## Project rules
 
-# Manual/nightly ACL gate. Any root or child leak fails.
-NATIVE_EVAL_DATABASE_URL='postgresql://.../knowledge_search' \
-  api/.venv/bin/python -m pytest -q -m full_acl api/tests
-
-# Complete release/nightly API suite.
-api/.venv/bin/python -m pytest -q -m "not (full_acl or full_retrieval)" api/tests
-```
-
-Do not remove search or RAG evaluation to make CI faster. Pull-request CI runs
-fast API checks and the small non-nightly evaluation. Nightly/manual CI keeps
-the full ACL and complete-suite gates. Evaluation reports are CI artifacts and
-are not committed to the repository.
-
-The native retrieval and ACL jobs use the committed full 603-query definitions.
-The ACL job uses every user
-in the configured read-only database. This is 60,300 query/user pairs for the
-current 100-user, 1,000-root corpus. The job fails when its protected database
-secret or expected corpus shape is missing. Never point it at a write database.
-It starts a read-only transaction and requires zero root and child leaks.
-
-## Eval-driven search improvement
-
-Create a fresh, read-only behavior report outside the repository:
-
-```bash
-DATABASE_URL='postgresql://...' api/.venv/bin/python scripts/run_eval_loop.py \
-  analyze --days 7 --output-dir /tmp/knowledge-browser-behavior
-```
-
-After one evidence-backed challenger has an `ALIGNED` intent audit and complete
-manifest, commit the code and run a new comparison from a clean worktree:
-
-```bash
-DATABASE_URL='postgresql://...' api/.venv/bin/python scripts/run_eval_loop.py \
-  evaluate --experiment eval/experiments/<id>/experiment.json \
-  --output-dir /tmp/knowledge-browser-runs/<id>
-```
-
-The repository skill is `.codex/skills/eval-driven-development/SKILL.md`.
-Generated behavior and evaluation reports stay outside Git. The development
-loop can only recommend the separate human-reviewed release gate.
-
-## Product and contribution rules
-
-- Product guardrails: `docs/PRODUCT_INTENT.md`
+- Product intent: `docs/PRODUCT_INTENT.md`
 - Feature contract template: `docs/contracts/FEATURE_CONTRACT_TEMPLATE.md`
-- Migration design: `docs/superpowers/specs/2026-08-31-clean-product-migration-design.md`
+- Repository workflow: `AGENTS.md`
