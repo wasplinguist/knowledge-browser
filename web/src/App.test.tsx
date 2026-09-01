@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -82,6 +82,78 @@ it('shows the answer and only one provenance for one document', async () => {
 
   expect(await screen.findByText('The pool is saturated.')).toBeVisible()
   expect(screen.getAllByRole('button', { name: /Pool timeout/ })).toHaveLength(1)
+})
+
+it('renders safe Markdown and keeps inline citations interactive', async () => {
+  vi.mocked(fetch).mockImplementation((input) => {
+    const url = String(input)
+    if (url.endsWith('/api/demo-users')) return json(users)
+    if (url.endsWith('/api/answer')) return json({
+      answer: [
+        '## Blocker owners',
+        '',
+        '**Ethan Evans** owns:',
+        '',
+        '- Request queue saturation',
+        '- Token cache memory leak',
+        '',
+        'Check `AQ-404` in the [Runbook](https://example.test/runbook) [1].',
+        '',
+        'Missing citation [2].',
+        '',
+        '~~~text',
+        '[1]',
+        '~~~',
+        '',
+        '    [1]',
+        '',
+        '[Reference nine][9]',
+        '',
+        '[9]: https://example.test/reference',
+        '',
+        'Do not load ![tracking image](https://tracker.example.test/pixel.gif).',
+        '',
+        '<div data-testid="unsafe-html">Unsafe</div>',
+      ].join('\n'),
+      evidence_status: 'complete',
+      citations: [{
+        chunk_id: 'jira:ATLAS-231:description:0', source: 'jira',
+        external_id: 'ATLAS-231', title: 'Pool timeout',
+      }],
+      conflicts: [],
+      missing_information: [],
+      follow_ups: [],
+    })
+    if (url.endsWith('/api/documents/jira/ATLAS-231')) return json({
+      source: 'jira', external_id: 'ATLAS-231', kind: 'issue', title: 'Pool timeout',
+      author: 'Maya', container: 'Atlas', payload: { description: 'Pool exhausted.' },
+    })
+    return json(result)
+  })
+  await searchFor()
+
+  const answerPanel = screen.getByRole('region', { name: 'AI answer' })
+  expect(within(answerPanel).getByRole('heading', { name: 'Blocker owners' })).toBeVisible()
+  expect(within(answerPanel).getByText('Ethan Evans').tagName).toBe('STRONG')
+  expect(within(answerPanel).getAllByRole('listitem')).toHaveLength(2)
+  expect(within(answerPanel).getByText('AQ-404').tagName).toBe('CODE')
+  expect(within(answerPanel).getByRole('link', { name: 'Runbook' })).toHaveAttribute(
+    'href', 'https://example.test/runbook',
+  )
+  expect(within(answerPanel).getByText('Missing citation [2].')).toBeVisible()
+  expect(Array.from(answerPanel.querySelectorAll('code')).filter((code) => code.textContent?.trim() === '[1]'))
+    .toHaveLength(2)
+  expect(within(answerPanel).getByRole('link', { name: 'Reference nine' })).toHaveAttribute(
+    'href', 'https://example.test/reference',
+  )
+  expect(within(answerPanel).queryByRole('img')).not.toBeInTheDocument()
+  expect(within(answerPanel).getByText('tracking image')).toBeVisible()
+  expect(within(answerPanel).queryByTestId('unsafe-html')).not.toBeInTheDocument()
+
+  await userEvent.click(within(answerPanel).getByRole('button', {
+    name: 'Citation 1: Pool timeout',
+  }))
+  expect(await screen.findByRole('dialog')).toBeVisible()
 })
 
 it('shows structured evidence and opens inline citations in the local panel', async () => {

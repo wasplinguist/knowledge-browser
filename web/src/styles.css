@@ -47,12 +47,22 @@ h3 { margin: 0 0 8px; font-size: 14px; line-height: 1.29; letter-spacing: -0.224
 
 .answer-panel { overflow: hidden; border: 1px solid var(--hairline); border-radius: 18px; background: #fff; }
 .answer-section { padding: 32px; }
-.answer-section h2 { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.answer-heading h2 { display: flex; align-items: center; gap: 10px; font-weight: 600; }
 .answer-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .answer-heading h2 { margin-bottom: 0; }
 .orb { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: var(--action); color: #fff; }
 .answer-copy { margin-top: 24px; }
-.answer-copy p { white-space: pre-wrap; }
+.answer-copy > :first-child { margin-top: 0; }
+.answer-copy > :last-child { margin-bottom: 0; }
+.answer-copy h1, .answer-copy h2, .answer-copy h3 { margin: 24px 0 8px; }
+.answer-copy h1 { font-size: 24px; }
+.answer-copy h2 { font-size: 20px; }
+.answer-copy h3 { font-size: 17px; }
+.answer-copy ul, .answer-copy ol { padding-left: 24px; }
+.answer-copy a { color: var(--action); }
+.answer-copy code { padding: 2px 5px; border-radius: 5px; background: var(--parchment); font-size: 0.9em; }
+.answer-copy pre { overflow-x: auto; padding: 14px; border-radius: 8px; background: var(--parchment); }
+.answer-copy pre code { padding: 0; background: transparent; }
 .inline-citation { min-width: 28px; min-height: 28px; padding: 0 4px; border: 0; background: transparent; color: var(--action); vertical-align: baseline; }
 .evidence-state { padding: 8px 14px; border-radius: 11px; background: var(--pearl); color: #333; font-size: 14px; line-height: 1.29; }
 .evidence-state.conflicting { border: 1px solid var(--action); color: var(--action); }
