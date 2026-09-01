@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Knowledge Browser project architecture</title>
+  <desc id="desc">A three-band diagram showing safe first-run database setup, the local React and FastAPI runtime, PostgreSQL with pgvector in Docker, OpenAI embeddings and answers, and read-only profile evaluation with human review.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <style>
+      .title { font: 700 38px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .band { font: 700 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; letter-spacing: 1.5px; }
+      .heading { font: 700 23px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .body { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .small { font: 500 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .code { font: 700 17px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #0f172a; }
+      .light-heading { font: 700 23px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .light-body { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #cbd5e1; }
+      .line { stroke: #475569; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .blue-line { stroke: #2563eb; stroke-width: 4; fill: none; marker-end: url(#arrow-blue); }
+      .control { stroke: #94a3b8; stroke-width: 3; stroke-dasharray: 8 7; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" rx="30" fill="#f8fafc"/>
+  <text x="70" y="70" class="title">Project architecture</text>
+  <text x="70" y="106" class="subtitle">Committed company data, the local runtime, and read-only evaluation share one PostgreSQL service.</text>
+
+  <rect x="55" y="140" width="1120" height="230" rx="24" fill="#fffdf5" stroke="#d97706" stroke-width="2"/>
+  <text x="80" y="175" class="band">1 · SAFE FIRST-RUN DATABASE SETUP</text>
+
+  <rect x="85" y="205" width="245" height="120" rx="18" fill="#fffbeb" stroke="#f59e0b" stroke-width="2"/>
+  <text x="110" y="239" class="code">run_server.sh</text>
+  <text x="110" y="273" class="body">Orchestrates startup</text>
+  <text x="110" y="301" class="small">safe to run again</text>
+
+  <path d="M 330 265 L 375 265" class="line"/>
+
+  <rect x="375" y="195" width="270" height="140" rx="18" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="400" y="232" class="code">setup_database.sh</text>
+  <text x="400" y="267" class="body">Validate → schema → import</text>
+  <text x="400" y="296" class="small">sentence embeddings</text>
+  <text x="400" y="321" class="small">compatibility check</text>
+
+  <path d="M 715 240 L 645 240" class="line"/>
+  <path d="M 715 292 L 645 292" class="line"/>
+
+  <rect x="715" y="190" width="420" height="70" rx="16" fill="#ffffff" stroke="#f59e0b" stroke-width="2"/>
+  <text x="740" y="220" class="code">data/company/</text>
+  <text x="740" y="247" class="small">manifest · identities · ACLs · four source artifact sets</text>
+
+  <rect x="715" y="280" width="420" height="70" rx="16" fill="#ffffff" stroke="#f59e0b" stroke-width="2"/>
+  <text x="740" y="310" class="code">db/init/001_schema.sql</text>
+  <text x="740" y="337" class="small">schema · full text · pgvector · telemetry tables</text>
+
+  <rect x="55" y="400" width="1120" height="270" rx="24" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="80" y="435" class="band">2 · LOCAL RUNTIME · HOST PROCESSES</text>
+
+  <rect x="85" y="475" width="220" height="125" rx="18" fill="#ffffff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="110" y="510" class="code">web/</text>
+  <text x="110" y="545" class="heading">React + Vite</text>
+  <text x="110" y="575" class="small">search · answer · clicks</text>
+
+  <path d="M 305 537 L 370 537" class="blue-line"/>
+  <text x="337" y="522" class="small" text-anchor="middle">HTTP</text>
+
+  <rect x="370" y="455" width="315" height="165" rx="18" fill="#eef2ff" stroke="#6366f1" stroke-width="3"/>
+  <text x="395" y="490" class="code">api/</text>
+  <text x="395" y="526" class="heading">FastAPI</text>
+  <text x="395" y="558" class="body">search · documents · RAG</text>
+  <text x="395" y="587" class="small">ACLs · events · analytics</text>
+
+  <path d="M 685 515 L 755 515" class="line"/>
+  <text x="720" y="500" class="small" text-anchor="middle">SDK</text>
+
+  <rect x="755" y="455" width="290" height="125" rx="18" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="780" y="490" class="heading">OpenAI API</text>
+  <text x="780" y="526" class="body">Sentence + query embeddings</text>
+  <text x="780" y="554" class="small">grounded answer responses</text>
+
+  <rect x="755" y="600" width="290" height="48" rx="16" fill="#e0e7ff"/>
+  <text x="900" y="630" class="code" text-anchor="middle">search/profiles/released.json</text>
+  <path d="M 755 624 L 685 585" class="control"/>
+
+  <rect x="85" y="620" width="220" height="34" rx="17" fill="#dbeafe"/>
+  <text x="195" y="643" class="code" text-anchor="middle">run_server.sh</text>
+  <path d="M 305 637 C 335 637, 335 590, 370 590" class="control"/>
+
+  <rect x="55" y="700" width="1120" height="240" rx="24" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="80" y="735" class="band">3 · ISOLATED EVALUATION</text>
+
+  <rect x="85" y="775" width="275" height="120" rx="18" fill="#ffffff" stroke="#4ade80" stroke-width="2"/>
+  <text x="110" y="810" class="heading">Versioned inputs</text>
+  <text x="110" y="844" class="small">eval/queries.json + corpus</text>
+  <text x="110" y="873" class="small">released + challenger profiles</text>
+
+  <path d="M 360 835 L 410 835" class="line"/>
+
+  <rect x="410" y="760" width="280" height="150" rx="18" fill="#ecfdf5" stroke="#16a34a" stroke-width="3"/>
+  <text x="435" y="798" class="code">scripts/run_eval_loop.py</text>
+  <text x="435" y="834" class="body">baseline vs challenger</text>
+  <text x="435" y="864" class="small">fast ACL · fingerprints</text>
+  <text x="435" y="890" class="small">quality · latency · decision</text>
+
+  <path d="M 690 835 L 745 835" class="line"/>
+
+  <rect x="745" y="775" width="235" height="120" rx="18" fill="#ffffff" stroke="#4ade80" stroke-width="2"/>
+  <text x="770" y="810" class="code">/tmp/.../run.json</text>
+  <text x="770" y="844" class="code">/tmp/.../report.html</text>
+  <text x="770" y="873" class="small">outside Git · evidence only</text>
+
+  <path d="M 980 835 L 1030 835" class="line"/>
+
+  <rect x="1030" y="785" width="110" height="100" rx="18" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="1085" y="825" class="heading" text-anchor="middle">Human</text>
+  <text x="1085" y="856" class="small" text-anchor="middle">review</text>
+
+  <rect x="1210" y="140" width="335" height="800" rx="26" fill="#f1f5f9" stroke="#64748b" stroke-width="3" stroke-dasharray="12 8"/>
+  <text x="1238" y="180" class="band">DOCKER COMPOSE · DB ONLY</text>
+  <text x="1238" y="215" class="code">pgvector/pgvector:pg17</text>
+
+  <rect x="1240" y="255" width="275" height="150" rx="20" fill="#0f172a"/>
+  <text x="1265" y="294" class="light-heading">PostgreSQL</text>
+  <text x="1265" y="330" class="light-body">documents · chunks</text>
+  <text x="1265" y="360" class="light-body">full text · halfvec</text>
+  <text x="1265" y="390" class="light-body">users · ACLs · events</text>
+
+  <rect x="1240" y="450" width="275" height="100" rx="18" fill="#ffffff" stroke="#64748b" stroke-width="2"/>
+  <text x="1265" y="486" class="code">app database</text>
+  <text x="1265" y="520" class="small">imported company dataset</text>
+
+  <rect x="1240" y="600" width="275" height="100" rx="18" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+  <text x="1265" y="636" class="code">repeatable-read snapshot</text>
+  <text x="1265" y="670" class="small">same app database · read only</text>
+
+  <rect x="1240" y="755" width="275" height="100" rx="18" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>
+  <text x="1265" y="791" class="code">db/init/</text>
+  <text x="1265" y="825" class="small">schema + search telemetry</text>
+
+  <path d="M 685 515 C 720 405, 1080 405, 1240 500" class="line"/>
+  <path d="M 690 890 C 800 930, 1050 930, 1175 930 L 1175 700 C 1175 670, 1200 650, 1240 650" class="line"/>
+  <path d="M 1377 755 L 1377 700" class="control"/>
+  <path d="M 1377 755 C 1200 740, 1200 550, 1240 525" class="control"/>
+
+  <rect x="55" y="958" width="1490" height="28" rx="14" fill="#e2e8f0"/>
+  <text x="800" y="978" class="small" text-anchor="middle">Everything except PostgreSQL runs on the host. The committed company corpus uses no live service connector.</text>
+</svg>
