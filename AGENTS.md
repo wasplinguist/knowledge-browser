@@ -6,12 +6,11 @@ Every product feature starts with a contract based on
 `docs/contracts/FEATURE_CONTRACT_TEMPLATE.md`. One feature is one branch, one
 worktree, and one pull request. Pull requests are squash-merged into `main`.
 
-Do not copy old experiments, caches, generated reports, local settings, or
-inactive datasets into this repository. The old `knowledge-search` repository
-is reference material only.
+Do not copy superseded experiments, caches, generated reports, local settings,
+or inactive datasets into this repository.
 
-The only approved old-data snapshot is `data/company/**`, which is
-manifest-verified source data for the portable bootstrap. Keep all other old
+The only approved committed dataset is `data/company/**`, which is
+manifest-verified source data for the portable bootstrap. Keep all other
 artifacts and dataset generation deferred.
 
 ## Active product order

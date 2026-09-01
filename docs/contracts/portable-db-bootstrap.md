@@ -14,19 +14,17 @@ database without importing again.
 
 ## Evidence
 
-The current product can read the populated local `knowledge_search` database,
-but a new computer has no portable way to create that database. The user asked
-to bring the original company data into this project and initialize the
-database on the first server run.
+The first-run workflow must create and verify the local `knowledge_search`
+database on a new computer before starting the API and web app.
 
-The old active dataset is manifest-verified and contains 100 users, 1,000
+The committed dataset is manifest-verified and contains 100 users, 1,000
 documents, 13,145 chunks, and 16,520 sentences after indexing. Its neighboring
 embedding cache is 252 MB and is not required when embeddings are created with
 the configured OpenAI API key.
 
 ## Scope
 
-- Commit only the old active `data/company` source dataset, including its
+- Keep the active `data/company` source dataset, including its
   manifest and source artifacts.
 - Add the PostgreSQL schema required by the existing compatibility contract.
 - Add manifest validation, source parsing, chunking, embedding, and transactional
@@ -40,8 +38,8 @@ the configured OpenAI API key.
 
 ## Non-goals
 
-- Copying `data/.cache`, especially the 252 MB embedding cache.
-- Copying old reports, experiments, local settings, secrets, or Git history.
+- Committing `data/.cache`, especially the 252 MB embedding cache.
+- Committing generated reports, experiments, local settings, or secrets.
 - Regenerating the canonical dataset.
 - Adding Slack, Jira, GitHub, or Confluence connectors or sync workers.
 - Replacing or re-importing a database that already contains documents.
@@ -50,14 +48,10 @@ the configured OpenAI API key.
 
 ## Dependencies
 
-- Latest remote `main` at `be5da7f` or later.
 - Docker with Compose, Python 3.12, and Node.js 22.22.2 or later.
 - A valid `OPENAI_API_KEY` for first-run embedding creation.
 - The existing database compatibility, ACL-safe reads, hybrid retrieval, search
   API, grounded RAG, and web experience already merged into `main`.
-
-The feature does not depend on the old unmerged `codex/canonical-dataset`
-worktree or branch.
 
 ## Interface and data contract
 
@@ -145,19 +139,18 @@ the existing compatibility check and preserve the released search behavior.
 Do not run tests marked `full_acl`, `full_retrieval`, or `nightly` for this
 feature.
 
-## Source reference
+## Implementation inputs
 
-The following old-repository paths are approved source references for this
-focused migration:
+The bootstrap is defined by these versioned project paths:
 
-- `data/company/` — the active manifest-verified dataset; this directory alone
-  is copied.
-- `db/init/001_schema.sql` and `db/init/002_eval.sql` — schema reference.
-- `api/src/knowledge_search/ingest.py` — parsing and transactional import
-  reference.
-- `api/src/knowledge_search/embeddings.py` — chunking, deduplication, and
-  embedding batching reference.
-- `scripts/dev.sh` — local startup sequencing reference.
+- `data/company/` — the active manifest-verified dataset.
+- `db/init/001_schema.sql` — database schema.
+- `api/src/knowledge_browser/dataset.py` and
+  `api/src/knowledge_browser/importer.py` — validation, parsing, and
+  transactional import.
+- `api/src/knowledge_browser/embedding_index.py` — chunking, deduplication, and
+  embedding batching.
+- `run_server.sh` and `scripts/setup_database.sh` — startup and database setup.
 
-Old Git history, `data/.cache`, generated reports, secrets, local settings, and
-other inactive data remain reference-only and must not be imported.
+Generated reports, caches, secrets, local settings, and inactive data remain
+outside the committed bootstrap inputs.

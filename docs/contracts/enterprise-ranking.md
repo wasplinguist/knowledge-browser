@@ -2,8 +2,7 @@
 
 ## Status
 
-Implemented from the clean product migration roadmap and the product-intent
-audit below.
+Implemented; the product-intent audit is recorded below.
 
 ## User outcome
 
@@ -15,10 +14,10 @@ project, while ordinary historical queries keep their relevance order.
 
 - The user explicitly requested freshness checks for `latest`, `newest`,
   `most recent`, and `current`.
-- Old validated behavior showed a stale Confluence plan above the current Jira
+- Focused validation showed a stale Confluence plan above the current Jira
   status, exact Jira tickets below cross-service mentions, and an unrelated
   project above the user's primary project.
-- Earlier hard troubleshooting queries showed why one strong clue must not turn
+- Hard troubleshooting queries showed why one strong clue must not turn
   into a broad AND-only query or a new candidate source. This feature therefore
   reranks retrieved candidates only.
 
@@ -84,7 +83,7 @@ returned by keyword or semantic retrieval.
    buried below weaker but lexically similar results.
 2. Affected intents: recent information, status, known item, acronym/alias,
    personalization, and hard troubleshooting.
-3. Evidence: the user request plus the old validated ranking failures listed
+3. Evidence: the user request plus the validated ranking failures listed
    above.
 4. Target metric: focused top-1 wins with zero losses on protected historical
    cases and zero focused ACL leaks.
@@ -99,7 +98,7 @@ Intent auditor result:
 
 ```text
 Verdict: ALIGNED
-Evidence: explicit freshness request and old validated stale-status, exact-key, and primary-project ranking failures
+Evidence: explicit freshness request and validated stale-status, exact-key, and primary-project ranking failures
 Affected intents: recent_information, status, known_item, acronym_alias, personalized, troubleshooting
 Metric: focused top-1 wins, protected-query losses, focused ACL leaks
 Regression risk: historical and cross-service queries may be over-boosted
@@ -135,12 +134,3 @@ The populated-database read-only probe completed paired baseline-plus-released
 keyword-only searches in about `1.4–5.4 ms` in this local run; it made no writes and
 did not run the exhaustive ACL scan. Queries requiring semantic recall cannot
 be judged by that keyword-only probe and remain a Feature 8 evaluation gate.
-
-## Source reference
-
-- `knowledge-search/api/src/knowledge_search/search.py`
-- `knowledge-search/api/src/knowledge_search/profiles.py`
-- `knowledge-search/api/tests/test_profiles.py`
-- `knowledge-search/api/tests/test_search_api.py`
-- `knowledge-search/eval/profiles/enterprise-v1.json`
-- `knowledge-search/eval/experiments/exp-2026-08-31-exact-jira-key/experiment.json`

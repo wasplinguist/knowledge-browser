@@ -109,7 +109,3 @@ latency percentile.
 - Normal API tests with `full_acl`, `full_retrieval`, and `nightly` excluded.
 - Existing web tests and production build.
 - `git diff --check`.
-
-## Source reference
-
-No old repository files or datasets are used.

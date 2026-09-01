@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved by the clean product migration roadmap.
+Implemented.
 
 ## User outcome
 
@@ -34,14 +34,13 @@ scores, and each root document appears only once.
 - Real problem: one service or one matching method misses useful company facts.
 - Affected intents: known items, facts, troubleshooting, aliases, and
   cross-service evidence.
-- Evidence: the validated old product used independent keyword and semantic
-  lists, then RRF and root grouping; earlier experiments improved retrieval
-  from 39% to 61% overall while preserving strong native-source results.
+- Evidence: focused retrieval tests cover independent keyword and semantic
+  lists, RRF, root grouping, deterministic ties, and ACL-safe results.
 - Target metric: focused retrieval tests find the allowed expected root in the
   top results with zero ACL leaks.
 - Regression risk: semantic matches can weaken exact keyword order, and child
   matches can expose a root incorrectly.
-- Golden-set risk: low; this migrates general retrieval behavior and does not
+- Golden-set risk: low; this implements general retrieval behavior and does not
   add query-specific rules.
 - Unclear purpose: none.
 
