@@ -259,6 +259,9 @@ def _acl_checks(
     unknown_rows = (
         (company, group, direct) if direct_applicable else (company, group)
     )
+    direct_database_links = conn.execute(
+        "SELECT count(*) FROM permission_set_users"
+    ).fetchone()[0]
 
     return {
         "company_visible": visible(company),
@@ -267,6 +270,7 @@ def _acl_checks(
         "direct_user_status": (
             "checked" if direct_applicable else "not_applicable"
         ),
+        "direct_user_database_links": direct_database_links,
         "direct_user_visible": visible(direct) if direct_applicable else None,
         "direct_unauthorized_results": (
             unauthorized_results(direct) if direct_applicable else None
@@ -400,7 +404,10 @@ def verify_redwood(
         and run[4] == profile.embedding_model
         and run[5] == 1536
     )
-    direct_safe = acl_checks["direct_user_status"] == "not_applicable" or (
+    direct_safe = (
+        acl_checks["direct_user_status"] == "not_applicable"
+        and acl_checks["direct_user_database_links"] == 0
+    ) or (
         acl_checks["direct_user_status"] == "checked"
         and acl_checks["direct_user_visible"]
         and acl_checks["direct_unauthorized_results"] == 0

@@ -336,6 +336,7 @@ def test_verify_blocks_unknown_user_and_scores_unchanged_qa(
         "group_visible": True,
         "group_unauthorized_results": 0,
         "direct_user_status": "checked",
+        "direct_user_database_links": 2,
         "direct_user_visible": True,
         "direct_unauthorized_results": 0,
         "unknown_user_results": 0,
@@ -398,6 +399,7 @@ def test_verify_acl_probes_use_released_hybrid_search(
         "group_visible": True,
         "group_unauthorized_results": 0,
         "direct_user_status": "checked",
+        "direct_user_database_links": 2,
         "direct_user_visible": True,
         "direct_unauthorized_results": 0,
         "unknown_user_results": 0,
@@ -426,11 +428,31 @@ def test_verify_reports_direct_acl_not_applicable_when_source_has_none(
         "group_visible": True,
         "group_unauthorized_results": 0,
         "direct_user_status": "not_applicable",
+        "direct_user_database_links": 0,
         "direct_user_visible": None,
         "direct_unauthorized_results": None,
         "unknown_user_results": 0,
     }
     assert "Direct body" not in client.inputs
+
+
+def test_verify_fails_for_database_direct_link_missing_from_source(
+    tmp_path, clean_database_url
+):
+    data_dir = _verification_data(tmp_path, direct_acl=False)
+
+    report = verify_redwood(
+        _verification_database(clean_database_url, data_dir),
+        data_dir,
+        FakeEmbeddingClient(),
+        load_profile(RELEASED),
+    )
+
+    assert report.compatible is False
+    assert report.acl_checks["direct_user_status"] == "not_applicable"
+    assert report.acl_checks["direct_user_visible"] is None
+    assert report.acl_checks["direct_unauthorized_results"] is None
+    assert report.acl_checks["direct_user_database_links"] == 2
 
 
 @pytest.mark.parametrize(

@@ -113,8 +113,10 @@ search profile. Its ACL probes also use that real search path for company,
 group, unauthorized, and unknown-user checks. When the validated source data
 contains direct-user ACLs, it also runs strict authorized and unauthorized
 direct-user searches. When there are none, the report shows
-`direct_user_status: not_applicable` with null direct results. It checks exact
-document and source counts, embeddings, Recall@10, MRR, and local search
+`direct_user_status: not_applicable` with null direct results. In that case,
+`direct_user_database_links` must be zero; any unexpected database link is
+reported and makes verification fail. It checks exact document and source
+counts, embeddings, Recall@10, MRR, and local search
 p50/p95 latency. Semantic retrieval uses the finalized partition HNSW indexes
 before bounded result deduplication. Verification fails when p95 is over the
 two-second local target. It needs the OpenAI API key for query embeddings.

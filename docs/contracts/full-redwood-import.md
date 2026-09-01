@@ -143,7 +143,8 @@ import cache.
 - Compatibility reports no issues.
 - Focused company, group, and unknown-user ACL checks pass. Direct-user checks
   pass when the validated source data contains direct-user ACLs; otherwise the
-  report marks that source shape as explicitly not applicable.
+  report marks that source shape as explicitly not applicable and requires
+  zero `permission_set_users` database links.
 - Redwood QA metrics and p50/p95 search latency are recorded for review.
 - No Redwood source data or generated artifact is added to Git.
 

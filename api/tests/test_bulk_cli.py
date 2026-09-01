@@ -291,6 +291,7 @@ def _verification_report(*, compatible=True, p95_ms=20.0):
         missing_embeddings=0,
         acl_checks={
             "direct_user_status": "not_applicable",
+            "direct_user_database_links": 0,
             "direct_user_visible": None,
             "direct_unauthorized_results": None,
             "unknown_user_results": 0,
@@ -323,6 +324,7 @@ def test_verify_prints_safe_json_and_uses_released_profile(monkeypatch, capsys):
     assert payload["compatible"] is True
     assert payload["counts"]["documents"] == 8
     assert payload["acl_checks"]["direct_user_status"] == "not_applicable"
+    assert payload["acl_checks"]["direct_user_database_links"] == 0
     assert payload["acl_checks"]["direct_user_visible"] is None
     assert calls == [
         ("guard", REDWOOD_URL),
