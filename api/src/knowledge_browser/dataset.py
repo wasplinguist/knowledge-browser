@@ -307,6 +307,19 @@ def _add_field(fields: dict[str, list[str]], name: str, values: list[str]) -> No
         fields[name] = values
 
 
+def _without_nuls(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace("\x00", "\ufffd")
+    if isinstance(value, list):
+        return [_without_nuls(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _without_nuls(key): _without_nuls(item)
+            for key, item in value.items()
+        }
+    return value
+
+
 def _employee_terms(employee_ids: list[str], artifact_id: str, context: dict[str, Any]) -> list[str]:
     values = []
     for employee_id in employee_ids:
@@ -454,23 +467,23 @@ def _document(artifact: dict[str, Any], source: str, context: dict[str, Any]) ->
         body, document_kind = "\n".join(bodies), "confluence_page"
 
     return ParsedDocument(
-        source=source,
-        kind=document_kind,
-        external_id=artifact_id,
-        title=title,
-        body=body,
-        author=context["names"][author_id],
-        url=f"https://synthetic.local/{source}/{artifact_id}",
-        container=container,
+        source=_without_nuls(source),
+        kind=_without_nuls(document_kind),
+        external_id=_without_nuls(artifact_id),
+        title=_without_nuls(title),
+        body=_without_nuls(body),
+        author=_without_nuls(context["names"][author_id]),
+        url=_without_nuls(f"https://synthetic.local/{source}/{artifact_id}"),
+        container=_without_nuls(container),
         created_at=_optional_string(
             artifact.get("created_at"), f"artifact {artifact_id} created_at"
         ),
         updated_at=_optional_string(
             artifact.get("updated_at"), f"artifact {artifact_id} updated_at"
         ),
-        acl=_mapped_acl(artifact.get("acl"), context),
-        raw_payload=artifact,
-        fields=fields,
+        acl=_without_nuls(_mapped_acl(artifact.get("acl"), context)),
+        raw_payload=_without_nuls(artifact),
+        fields=_without_nuls(fields),
     )
 
 
