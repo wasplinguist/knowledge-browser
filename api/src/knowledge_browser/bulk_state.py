@@ -11,20 +11,28 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
+from .db_compat import REQUIRED_TABLES as PRODUCT_TABLES
+
 
 SOURCES = ("jira", "confluence", "slack", "github")
 STATE_TABLES = {"bulk_import_runs", "bulk_import_progress", "bulk_embedding_cache"}
+REQUIRED_TABLES = {
+    *PRODUCT_TABLES,
+    "search_events",
+    "search_clicks",
+    *STATE_TABLES,
+}
 POPULATED_SQL = """
     SELECT
-      EXISTS (SELECT FROM users)
-      OR EXISTS (SELECT FROM groups)
-      OR EXISTS (SELECT FROM group_memberships)
-      OR EXISTS (SELECT FROM permission_sets)
-      OR EXISTS (SELECT FROM permission_set_users)
-      OR EXISTS (SELECT FROM permission_set_groups)
-      OR EXISTS (SELECT FROM documents)
-      OR EXISTS (SELECT FROM chunks)
-      OR EXISTS (SELECT FROM sentences)
+      EXISTS (SELECT FROM public.users)
+      OR EXISTS (SELECT FROM public.groups)
+      OR EXISTS (SELECT FROM public.group_memberships)
+      OR EXISTS (SELECT FROM public.permission_sets)
+      OR EXISTS (SELECT FROM public.permission_set_users)
+      OR EXISTS (SELECT FROM public.permission_set_groups)
+      OR EXISTS (SELECT FROM public.documents)
+      OR EXISTS (SELECT FROM public.chunks)
+      OR EXISTS (SELECT FROM public.sentences)
 """
 
 
@@ -73,22 +81,23 @@ def reset_redwood_database(
     """Recreate only the explicitly guarded Redwood database schema."""
     assert_redwood_database(database_url)
     with psycopg.connect(database_url) as conn:
+        conn.execute("SET LOCAL search_path TO public, pg_catalog")
         conn.execute("DROP SCHEMA public CASCADE")
         conn.execute("CREATE SCHEMA public")
         for schema_path in schema_paths:
             conn.execute(schema_path.read_text())
 
 
-def _state_tables(conn) -> set[str]:
+def _required_tables(conn) -> set[str]:
     return {
         row[0]
         for row in conn.execute(
             """
             SELECT tablename
-            FROM pg_tables
+            FROM pg_catalog.pg_tables
             WHERE schemaname = 'public' AND tablename = ANY(%s)
             """,
-            (list(STATE_TABLES),),
+            (list(REQUIRED_TABLES),),
         )
     }
 
@@ -99,7 +108,15 @@ def _load_run(row) -> BulkRun:
 
 def start_or_resume_run(conn, validated, model, dimensions) -> BulkRun:
     """Start on an empty database or resume only exactly matching state."""
-    if _state_tables(conn) != STATE_TABLES:
+    with conn.transaction():
+        conn.execute(
+            "SELECT pg_catalog.pg_advisory_xact_lock(20260902, 2)"
+        )
+        return _start_or_resume_run(conn, validated, model, dimensions)
+
+
+def _start_or_resume_run(conn, validated, model, dimensions) -> BulkRun:
+    if _required_tables(conn) != REQUIRED_TABLES:
         raise BulkStateError("database is partially initialized")
 
     rows = conn.execute(
@@ -107,7 +124,7 @@ def start_or_resume_run(conn, validated, model, dimensions) -> BulkRun:
         SELECT id, manifest_digest, dataset_version, embedding_model,
                embedding_dimensions, status, safe_error, started_at,
                updated_at, completed_at
-        FROM bulk_import_runs
+        FROM public.bulk_import_runs
         ORDER BY started_at
         """
     ).fetchall()
@@ -118,7 +135,7 @@ def start_or_resume_run(conn, validated, model, dimensions) -> BulkRun:
         run_id = uuid4()
         row = conn.execute(
             """
-            INSERT INTO bulk_import_runs (
+            INSERT INTO public.bulk_import_runs (
               id, manifest_digest, dataset_version, embedding_model,
               embedding_dimensions, status
             ) VALUES (%s, %s, %s, %s, %s, 'loading')
@@ -136,7 +153,7 @@ def start_or_resume_run(conn, validated, model, dimensions) -> BulkRun:
         ).fetchone()
         for source in SOURCES:
             conn.execute(
-                "INSERT INTO bulk_import_progress (run_id, source) VALUES (%s, %s)",
+                "INSERT INTO public.bulk_import_progress (run_id, source) VALUES (%s, %s)",
                 (run_id, source),
             )
         return _load_run(row)
@@ -156,7 +173,7 @@ def start_or_resume_run(conn, validated, model, dimensions) -> BulkRun:
     progress_sources = {
         row[0]
         for row in conn.execute(
-            "SELECT source FROM bulk_import_progress WHERE run_id = %s",
+            "SELECT source FROM public.bulk_import_progress WHERE run_id = %s",
             (run.id,),
         )
     }
@@ -170,7 +187,7 @@ def load_progress(conn, run_id, source) -> Progress:
     row = conn.execute(
         """
         SELECT run_id, source, next_line, next_offset, documents, chunks, sentences
-        FROM bulk_import_progress
+        FROM public.bulk_import_progress
         WHERE run_id = %s AND source = %s
         """,
         (run_id, source),
@@ -194,7 +211,7 @@ def save_progress(
     """Advance a checkpoint in the caller's data transaction."""
     result = conn.execute(
         """
-        UPDATE bulk_import_progress
+        UPDATE public.bulk_import_progress
         SET next_line = %s,
             next_offset = %s,
             documents = COALESCE(%s, documents),
@@ -207,6 +224,6 @@ def save_progress(
     if result.rowcount != 1:
         raise BulkStateError("bulk import progress is missing")
     conn.execute(
-        "UPDATE bulk_import_runs SET updated_at = now() WHERE id = %s",
+        "UPDATE public.bulk_import_runs SET updated_at = pg_catalog.now() WHERE id = %s",
         (run_id,),
     )

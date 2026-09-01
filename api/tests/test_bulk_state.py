@@ -1,10 +1,13 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from types import SimpleNamespace
 
 import psycopg
 import pytest
 
 import knowledge_browser.bulk_state as bulk_state
+from conftest import _prepare_test_database
 from knowledge_browser.bulk_state import (
     BulkRun,
     BulkStateError,
@@ -29,6 +32,7 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def db(prepared_test_database):
     with psycopg.connect(prepared_test_database) as conn:
+        conn.execute("SELECT 1")
         yield conn
         conn.rollback()
 
@@ -52,6 +56,12 @@ def test_reset_guard_refuses_every_other_database(name):
         assert_redwood_database(f"postgresql://postgres:postgres@localhost/{name}")
 
 
+def test_reset_guard_accepts_exact_redwood_database():
+    assert_redwood_database(
+        "postgresql://postgres:postgres@localhost/knowledge_redwood"
+    )
+
+
 def test_reset_rebuilds_only_the_dedicated_test_database(
     prepared_test_database, monkeypatch
 ):
@@ -71,6 +81,58 @@ def test_reset_rebuilds_only_the_dedicated_test_database(
                 "SELECT tablename FROM pg_tables WHERE schemaname='public'"
             )
         } >= {"users", "bulk_import_runs", "bulk_import_progress", "bulk_embedding_cache"}
+
+
+def test_reset_pins_public_schema_with_hostile_search_path(
+    prepared_test_database, monkeypatch
+):
+    hostile_url = (
+        f"{prepared_test_database}?options=-csearch_path%3Dhostile"
+    )
+    with psycopg.connect(prepared_test_database) as conn:
+        conn.execute("CREATE SCHEMA hostile")
+
+    monkeypatch.setattr(bulk_state, "assert_redwood_database", lambda _url: None)
+    try:
+        reset_redwood_database(hostile_url, SCHEMAS)
+
+        with psycopg.connect(prepared_test_database) as conn:
+            assert conn.execute("SELECT to_regclass('public.users')").fetchone() == (
+                "users",
+            )
+            assert conn.execute("SELECT to_regclass('hostile.users')").fetchone() == (
+                None,
+            )
+    finally:
+        with psycopg.connect(prepared_test_database) as conn:
+            conn.execute("DROP SCHEMA IF EXISTS hostile CASCADE")
+        _prepare_test_database()
+
+
+def test_reset_rolls_back_if_a_schema_file_fails(
+    prepared_test_database, monkeypatch, tmp_path
+):
+    invalid_schema = tmp_path / "invalid.sql"
+    invalid_schema.write_text("CREATE TABLE public.broken (")
+    with psycopg.connect(prepared_test_database) as conn:
+        conn.execute(
+            "INSERT INTO users (email, name) VALUES ('preserved@test', 'Preserved')"
+        )
+
+    monkeypatch.setattr(bulk_state, "assert_redwood_database", lambda _url: None)
+    try:
+        with pytest.raises(psycopg.Error):
+            reset_redwood_database(
+                prepared_test_database, (SCHEMAS[0], invalid_schema)
+            )
+
+        with psycopg.connect(prepared_test_database) as conn:
+            assert conn.execute(
+                "SELECT name FROM users WHERE email = 'preserved@test'"
+            ).fetchone() == ("Preserved",)
+    finally:
+        with psycopg.connect(prepared_test_database) as conn:
+            conn.execute("DELETE FROM users WHERE email = 'preserved@test'")
 
 
 def test_start_creates_run_and_all_source_progress(db, validated):
@@ -103,6 +165,126 @@ def test_matching_run_resumes_with_the_same_id(db, validated):
     assert resumed.id == first.id
 
 
+def test_autocommit_initialization_rolls_back_partial_checkpoints(
+    prepared_test_database, validated
+):
+    with psycopg.connect(prepared_test_database, autocommit=True) as conn:
+        conn.execute("TRUNCATE public.bulk_import_runs CASCADE")
+        conn.execute(
+            """
+            CREATE FUNCTION public.fail_slack_progress() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.source = 'slack' THEN
+                RAISE EXCEPTION 'forced checkpoint failure';
+              END IF;
+              RETURN NEW;
+            END
+            $$
+            """
+        )
+        conn.execute(
+            """
+            CREATE TRIGGER fail_slack_progress
+            BEFORE INSERT ON public.bulk_import_progress
+            FOR EACH ROW EXECUTE FUNCTION public.fail_slack_progress()
+            """
+        )
+        try:
+            with pytest.raises(
+                psycopg.errors.RaiseException, match="forced checkpoint failure"
+            ):
+                start_or_resume_run(
+                    conn, validated, "text-embedding-3-small", 1536
+                )
+
+            assert conn.execute(
+                "SELECT count(*) FROM public.bulk_import_runs"
+            ).fetchone() == (0,)
+            assert conn.execute(
+                "SELECT count(*) FROM public.bulk_import_progress"
+            ).fetchone() == (0,)
+        finally:
+            conn.execute(
+                "DROP TRIGGER IF EXISTS fail_slack_progress ON public.bulk_import_progress"
+            )
+            conn.execute("DROP FUNCTION IF EXISTS public.fail_slack_progress()")
+            conn.execute("TRUNCATE public.bulk_import_runs CASCADE")
+
+
+def test_concurrent_initialization_creates_only_one_run(prepared_test_database):
+    barrier = Barrier(2)
+
+    def initialize(digest):
+        with psycopg.connect(prepared_test_database, autocommit=True) as conn:
+            barrier.wait()
+            try:
+                return start_or_resume_run(
+                    conn,
+                    SimpleNamespace(
+                        manifest_digest=digest,
+                        manifest={"dataset_version": "0.1.0"},
+                    ),
+                    "text-embedding-3-small",
+                    1536,
+                )
+            except BulkStateError as error:
+                return error
+
+    with psycopg.connect(prepared_test_database, autocommit=True) as conn:
+        conn.execute("TRUNCATE public.bulk_import_runs CASCADE")
+        conn.execute(
+            """
+            CREATE FUNCTION public.delay_bulk_run() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+              PERFORM pg_sleep(0.5);
+              RETURN NEW;
+            END
+            $$
+            """
+        )
+        conn.execute(
+            """
+            CREATE TRIGGER delay_bulk_run
+            BEFORE INSERT ON public.bulk_import_runs
+            FOR EACH ROW EXECUTE FUNCTION public.delay_bulk_run()
+            """
+        )
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(initialize, ("first-manifest", "second-manifest"))
+            )
+
+        assert sum(isinstance(result, BulkRun) for result in results) == 1
+        assert sum(isinstance(result, BulkStateError) for result in results) == 1
+        with psycopg.connect(prepared_test_database) as conn:
+            assert conn.execute(
+                "SELECT count(*) FROM public.bulk_import_runs"
+            ).fetchone() == (1,)
+            assert conn.execute(
+                "SELECT count(*) FROM public.bulk_import_progress"
+            ).fetchone() == (4,)
+    finally:
+        with psycopg.connect(prepared_test_database, autocommit=True) as conn:
+            conn.execute(
+                "DROP TRIGGER IF EXISTS delay_bulk_run ON public.bulk_import_runs"
+            )
+            conn.execute("DROP FUNCTION IF EXISTS public.delay_bulk_run()")
+            conn.execute("TRUNCATE public.bulk_import_runs CASCADE")
+
+
+def test_state_operations_ignore_hostile_search_path(db, validated):
+    db.execute("CREATE SCHEMA IF NOT EXISTS hostile")
+    db.execute("SET LOCAL search_path TO hostile")
+
+    run = start_or_resume_run(db, validated, "text-embedding-3-small", 1536)
+    save_progress(db, run.id, "jira", next_line=2, next_offset=100)
+
+    assert load_progress(db, run.id, "jira").next_line == 2
+
+
 @pytest.mark.parametrize(
     ("digest", "model", "dimensions", "message"),
     [
@@ -125,7 +307,25 @@ def test_resume_rejects_changed_configuration(
 
 
 def test_start_rejects_partially_initialized_state_schema(db, validated):
-    db.execute("DROP TABLE bulk_embedding_cache")
+    db.execute("DROP TABLE public.bulk_embedding_cache")
+
+    with pytest.raises(BulkStateError, match="partially initialized"):
+        start_or_resume_run(db, validated, "text-embedding-3-small", 1536)
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "DROP TABLE public.documents CASCADE",
+        "DROP TABLE public.sentences CASCADE",
+        "DROP TABLE public.jira_chunks CASCADE",
+        "DROP TABLE public.search_clicks",
+    ],
+)
+def test_start_rejects_partially_initialized_product_schema(
+    db, validated, statement
+):
+    db.execute(statement)
 
     with pytest.raises(BulkStateError, match="partially initialized"):
         start_or_resume_run(db, validated, "text-embedding-3-small", 1536)
