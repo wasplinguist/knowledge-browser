@@ -5,6 +5,7 @@ from uuid import UUID
 
 from .db import allowed_document_sql
 from .profiles import SearchProfile, expand_query
+from .repository import get_document_chunks
 
 
 SNIPPET_LENGTH = 280
@@ -252,6 +253,31 @@ def read_chunk(
     result = _result(row)
     result["text"] = row[2]
     return result
+
+
+def read_chunk_context(
+    conn,
+    user_id: UUID | str,
+    source: str,
+    chunk_id: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    selected = read_chunk(conn, user_id, source, chunk_id)
+    if selected is None or limit < 1:
+        return []
+
+    context = [selected]
+    for chunk in get_document_chunks(
+        conn, user_id, source, selected["matched_external_id"]
+    ):
+        if len(context) >= limit:
+            break
+        if chunk.id == selected["chunk_id"] or chunk.field != selected["field"]:
+            continue
+        sibling = read_chunk(conn, user_id, source, chunk.id)
+        if sibling is not None:
+            context.append(sibling)
+    return context
 
 
 def hybrid_search(
