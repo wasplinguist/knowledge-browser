@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">Knowledge Browser dataset structure</title>
+  <desc id="desc">Startup validates the complete company dataset, imports organization and access metadata, and indexes the four source artifact files. Separate query definitions and a read-only database snapshot feed the eval-driven loop, whose reports are written outside Git.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font: 700 38px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .step { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; letter-spacing: 1.2px; }
+      .heading { font: 700 23px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .body { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .small { font: 500 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .code { font: 700 17px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #0f172a; }
+      .light-heading { font: 700 23px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .light-body { font: 400 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #cbd5e1; }
+      .line { stroke: #475569; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .soft-line { stroke: #94a3b8; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="920" rx="30" fill="#f8fafc"/>
+  <text x="70" y="72" class="title">Dataset structure and boundaries</text>
+  <text x="70" y="108" class="subtitle">Startup validates every listed file, then imports metadata and indexes only the four source artifact files.</text>
+
+  <rect x="60" y="150" width="650" height="680" rx="26" fill="#ffffff" stroke="#6366f1" stroke-width="3"/>
+  <text x="90" y="195" class="step">ACTIVE, MANIFEST-VERIFIED DATASET</text>
+  <text x="90" y="235" class="code">data/company/</text>
+
+  <rect x="90" y="270" width="590" height="140" rx="18" fill="#eef2ff"/>
+  <text x="120" y="307" class="heading">Imported organization + access</text>
+  <text x="120" y="345" class="body">employees.jsonl · teams.jsonl</text>
+  <text x="120" y="378" class="body">projects.jsonl · acl.jsonl</text>
+  <text x="120" y="402" class="small">100 employees · 10 teams · 25 projects</text>
+
+  <rect x="90" y="435" width="590" height="145" rx="18" fill="#fff7ed"/>
+  <text x="120" y="472" class="heading">Validated source records</text>
+  <text x="120" y="510" class="body">world.json · events.jsonl · qa.jsonl · evidence_graphs.jsonl</text>
+  <text x="120" y="543" class="small">125 incidents · 603 questions · not indexed or direct eval inputs</text>
+  <text x="120" y="570" class="small">manifest.json · version, seed, counts, SHA-256 digests</text>
+
+  <rect x="90" y="605" width="590" height="185" rx="18" fill="#ecfeff"/>
+  <text x="120" y="642" class="heading">Searchable source artifacts</text>
+  <text x="120" y="680" class="code">artifacts/</text>
+  <text x="120" y="716" class="body">slack.jsonl · jira.jsonl</text>
+  <text x="120" y="749" class="body">github.jsonl · confluence.jsonl</text>
+  <text x="120" y="780" class="small">250 per source · 1,000 total records</text>
+
+  <path d="M 680 325 L 790 325" class="line"/>
+  <text x="735" y="305" class="small" text-anchor="middle">metadata</text>
+  <path d="M 680 695 C 750 695, 750 420, 790 420" class="line"/>
+  <text x="735" y="675" class="small" text-anchor="middle">artifacts</text>
+
+  <rect x="790" y="190" width="330" height="270" rx="24" fill="#0f172a"/>
+  <text x="820" y="230" class="step" style="fill:#94a3b8">PRODUCT INDEX</text>
+  <text x="820" y="273" class="light-heading">PostgreSQL + pgvector</text>
+  <text x="820" y="316" class="light-body">documents · chunks · sentences</text>
+  <text x="820" y="350" class="light-body">full text · vectors · ACLs</text>
+  <text x="820" y="397" class="light-body">setup_database.sh</text>
+  <text x="820" y="430" class="light-body">13,145 chunks · 16,520 sentences</text>
+
+  <rect x="790" y="540" width="330" height="250" rx="24" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="820" y="580" class="step">VERSIONED EVAL INPUTS</text>
+  <text x="820" y="624" class="code">eval/golden_queries.json</text>
+  <text x="820" y="654" class="small">4 fast pull-request queries</text>
+  <text x="820" y="704" class="code">eval/queries.json</text>
+  <text x="820" y="734" class="small">603 full benchmark queries</text>
+  <text x="820" y="774" class="small">definitions, not saved results</text>
+
+  <path d="M 1120 325 L 1210 390" class="line"/>
+  <path d="M 1120 665 L 1210 525" class="line"/>
+
+  <rect x="1210" y="295" width="330" height="300" rx="24" fill="#ffffff" stroke="#16a34a" stroke-width="3"/>
+  <text x="1240" y="337" class="step">READ-ONLY EVALUATION</text>
+  <text x="1240" y="382" class="heading">Indexed corpus + queries</text>
+  <text x="1240" y="425" class="body">retrieval metrics</text>
+  <text x="1240" y="458" class="body">baseline vs challenger</text>
+  <text x="1240" y="491" class="body">root + matched-child ACL</text>
+  <text x="1240" y="538" class="small">repeatable-read database snapshot</text>
+  <text x="1240" y="568" class="small">no profile promotion</text>
+
+  <path d="M 1375 595 L 1375 660" class="soft-line"/>
+  <rect x="1210" y="660" width="330" height="130" rx="20" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="1240" y="702" class="step">EVAL-LOOP OUTPUT</text>
+  <text x="1240" y="746" class="code">/tmp/.../run.json</text>
+  <text x="1240" y="775" class="small">JSON + HTML · outside Git</text>
+
+  <rect x="60" y="855" width="1480" height="36" rx="18" fill="#e2e8f0"/>
+  <text x="800" y="879" class="small" text-anchor="middle">No checked-in generator, test-fixture dataset, or saved evaluation-run directory is part of the active data path.</text>
+</svg>

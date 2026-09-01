@@ -164,6 +164,29 @@ The runtime default is `search/profiles/released.json`. Files under
 promotion requires fresh quality evidence, exhaustive ACL verification, and
 human approval.
 
+## Dataset structure
+
+Knowledge Browser ships one committed dataset under `data/company/`. Startup
+validates its complete manifest, builds identity and access metadata from the
+organization records, and indexes the Slack, Jira, GitHub, and Confluence
+renderings under `data/company/artifacts/`.
+
+![Knowledge Browser dataset structure](docs/images/dataset-structure.svg)
+
+- `employees.jsonl`, `teams.jsonl`, `projects.jsonl`, and `acl.jsonl` produce
+  user, group, project-alias, and access metadata during import.
+- `world.json`, `events.jsonl`, `qa.jsonl`, and `evidence_graphs.jsonl` are
+  manifest-verified organization, truth, and expected-evidence source records.
+  They do not become searchable documents or direct evaluation inputs.
+- `manifest.json` records the dataset version, seed, counts, and SHA-256 digest
+  of every listed dataset file.
+- `eval/golden_queries.json` and `eval/queries.json` are versioned evaluation
+  inputs, not alternate datasets or saved run output.
+
+The repository does not contain a dataset generator or a saved evaluation-run
+directory. The eval-driven loop writes each run to a new output directory
+outside Git, such as `/tmp/knowledge-browser-runs/<id>`.
+
 ## Golden set and evaluation
 
 The committed benchmark begins with structured company truth and renders it
@@ -198,7 +221,7 @@ ordering, Recall@10 for expected-evidence coverage, and forbidden-result leaks.
 Released-versus-challenger comparisons also record per-query wins, losses, and
 ties plus latency.
 
-Fast pull-request checks use small fixtures and a deterministic ACL sample.
+Fast pull-request checks use four golden queries and a deterministic ACL sample.
 The `full_retrieval` gate runs all 603 questions against the populated database.
 The `full_acl` gate evaluates 603 questions across 100 users—60,300 pairs—and
 requires zero canonical-root and matched-child leaks. Full retrieval and full
