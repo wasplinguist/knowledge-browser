@@ -18,7 +18,15 @@ load_environment() {
 free_port() {
   local port="$1" pids
   pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN || true)"
-  [ -z "$pids" ] || kill $pids
+  [ -z "$pids" ] && return 0
+  kill $pids
+  for _ in $(seq 1 "${PORT_RELEASE_ATTEMPTS:-30}"); do
+    pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN || true)"
+    [ -z "$pids" ] && return 0
+    sleep "${PORT_RELEASE_SLEEP:-0.1}"
+  done
+  echo "port $port is still occupied after TERM" >&2
+  return 1
 }
 
 load_environment

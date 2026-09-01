@@ -23,42 +23,44 @@ cat >"$tmp/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_LOG"
-if [ "$1 $2" = "compose exec" ]; then
-  case " $* " in
-    *" pg_isready "*)
-      [ "${FAKE_READY:-yes}" = yes ] && exit 0
-      exit 1
-      ;;
-    *" -tAc "*)
-      printf '%s\n' "${FAKE_TABLES:-0}"
-      ;;
-    *" psql "*)
-      cat >/dev/null
-      printf 'schema-stdin\n' >>"$FAKE_LOG"
-      ;;
-  esac
-fi
+[ "$1 $2" != "compose exec" ] || {
+  echo 'database operations must use DATABASE_URL, not Compose defaults' >&2
+  exit 88
+}
 EOF
 cat >"$tmp/python" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'python DATABASE_URL=%s %s\n' "${DATABASE_URL:-}" "$*" >>"$FAKE_LOG"
 case " $* " in
+  *"knowledge_browser.config"*) printf '%s\n' "${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/knowledge_search}"; exit 0 ;;
+  *"SELECT 1"*)
+    printf 'ready DATABASE_URL=%s\n' "${DATABASE_URL:-}" >>"$FAKE_LOG"
+    [ "${FAKE_READY:-yes}" = yes ] || exit 1
+    exit 0
+    ;;
+  *"pg_tables"*)
+    printf 'table-count DATABASE_URL=%s\n' "${DATABASE_URL:-}" >>"$FAKE_LOG"
+    printf '%s\n' "${FAKE_TABLES:-0}"
+    exit 0
+    ;;
+  *"schema_sql"*) printf 'schema DATABASE_URL=%s\n' "${DATABASE_URL:-}" >>"$FAKE_LOG"; exit 0 ;;
   *" knowledge_browser.bootstrap "*) [ "${FAKE_BOOTSTRAP:-ok}" = ok ] || exit 9 ;;
 esac
+printf 'python DATABASE_URL=%s %s\n' "${DATABASE_URL:-}" "$*" >>"$FAKE_LOG"
 EOF
 chmod +x "$tmp/docker" "$tmp/python"
 
 assert_order() {
   local expected actual
-  expected=$'compose up -d db\ncompose exec -T db pg_isready -U postgres -d knowledge_search\ncompose exec -T db psql -U postgres -d knowledge_search -tAc SELECT count(*) FROM pg_tables WHERE schemaname = \'public\' AND tablename IN (\'users\', \'groups\', \'group_memberships\', \'permission_sets\', \'permission_set_users\', \'permission_set_groups\', \'documents\', \'chunks\', \'sentences\', \'search_events\', \'search_clicks\')\ncompose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d knowledge_search\nschema-stdin'
-  actual="$(sed -n '1,5p' "$log")"
+  expected=$'compose up -d db\nready DATABASE_URL=from-process\ntable-count DATABASE_URL=from-process\nschema DATABASE_URL=from-process\npython DATABASE_URL=from-process -m knowledge_browser.bootstrap --data '
+  actual="$(sed -n '1,5p' "$log" | sed "5s|$root/data/company|data/company|")"
+  expected+="data/company"
   [ "$actual" = "$expected" ] || { printf 'unexpected setup order:\n%s\n' "$actual" >&2; return 1; }
 }
 
 printf 'DATABASE_URL=from-dotenv\n' >"$env_file"
 FAKE_LOG="$log" DATABASE_URL=from-process PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
-  bash "$root/scripts/setup_database.sh"
+  SETUP_DATABASE_READY_SLEEP=0 bash "$root/scripts/setup_database.sh"
 assert_order
 grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.bootstrap --data $root/data/company" "$log" >/dev/null
 grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.db_compat" "$log" >/dev/null
@@ -66,7 +68,7 @@ grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.db_compat" "$log
 : >"$log"
 FAKE_LOG="$log" FAKE_TABLES=11 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
   bash "$root/scripts/setup_database.sh"
-grep -q 'schema-stdin' "$log" && { echo 'complete schema was reapplied' >&2; exit 1; }
+grep -q '^schema ' "$log" && { echo 'complete schema was reapplied' >&2; exit 1; }
 grep -q 'knowledge_browser.bootstrap' "$log"
 
 if FAKE_LOG="$log" FAKE_TABLES=3 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
