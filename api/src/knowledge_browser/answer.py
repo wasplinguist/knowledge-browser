@@ -176,6 +176,7 @@ def answer_question(
     initial_results = hybrid_search(
         conn, user_id, question, embedding, source, profile
     )
+    found_results = bool(initial_results)
     remember(initial_results)
     instructions = (
         "Use the initial allowed hybrid results first. Call hybrid_search again "
@@ -271,6 +272,7 @@ def answer_question(
                     result = hybrid_search(
                         conn, user_id, query, query_embedding, requested_source, profile
                     ) if query else []
+                    found_results = found_results or bool(result)
                     remember(result)
                 else:
                     result = {"error": "invalid arguments or tool limit reached"}
@@ -305,7 +307,10 @@ def answer_question(
             input=outputs,
             previous_response_id=getattr(response, "id", None),
             tools=[] if limited else TOOLS,
-            tool_choice="none" if limited else "auto",
+            tool_choice="none" if limited else (
+                {"type": "function", "name": "read_chunk"}
+                if found_results and not opened else "auto"
+            ),
             instructions=instructions,
             parallel_tool_calls=False,
         )
@@ -355,7 +360,7 @@ def answer_question(
     citations = [
         _citation(citeable[chunk_id]) for chunk_id in citation_ids
     ]
-    if initial_results and payload.get("answer") and not citations:
+    if found_results and payload.get("answer") and not citations:
         raise AnswerExecutionError(execution(), trace)
     conflicts = []
     for conflict in payload.get("conflicts", []) if isinstance(payload.get("conflicts"), list) else []:

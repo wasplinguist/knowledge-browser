@@ -172,6 +172,32 @@ def test_factual_answer_with_results_and_no_opened_citation_fails_closed(monkeyp
         )
 
 
+def test_later_search_results_also_require_an_opened_citation(monkeypatch):
+    hit = _result()
+    searches = iter(([], [hit]))
+    monkeypatch.setattr(
+        answer_module, "hybrid_search", lambda *_args: next(searches)
+    )
+    responses = Responses([
+        _call("search", "hybrid_search", {"query": "better query", "source": None}),
+        _final({
+            "answer": "The queue was saturated.",
+            "evidence_status": "incomplete",
+            "citations": [],
+        }),
+    ])
+
+    with pytest.raises(answer_module.AnswerExecutionError):
+        answer_module.answer_question(
+            None, "user", "What happened?", lambda _query: None,
+            SimpleNamespace(responses=responses),
+        )
+
+    assert responses.requests[1]["tool_choice"] == {
+        "type": "function", "name": "read_chunk",
+    }
+
+
 def test_two_opened_conflict_citations_force_conflicting(monkeypatch):
     hits = [_result("jira:A:0"), _result("jira:B:0")]
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: hits)

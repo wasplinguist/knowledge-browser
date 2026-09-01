@@ -85,9 +85,13 @@ Regression risk: a required read may add latency or open a weak top result
 Questions: none
 ```
 
-No new model call is required. The first existing model call is constrained to
-open evidence when initial results exist, so total latency stays within the
-existing fast/deep tool-call budgets.
+The forced evidence read may add one provider continuation and one database
+read when a model previously answered directly. It adds no extra retrieval
+embedding when initial results exist and stays inside the existing fast/deep
+tool-call budgets. The reproduced fast query took 13.4 seconds before the fix
+and 11.4 seconds after the fix in one local run. The acceptance ceiling for the
+same local fast query is 20 seconds; this single-run check is not a production
+latency percentile.
 
 ## Acceptance criteria
 
