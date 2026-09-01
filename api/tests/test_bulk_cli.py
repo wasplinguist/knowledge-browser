@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -6,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import knowledge_browser.bulk_cli as bulk_cli
+from knowledge_browser.bulk_verify import VerificationReport
 from knowledge_browser.bulk_writer import BatchReport
 
 
@@ -248,6 +250,91 @@ def test_status_prints_safe_manifest_identity_without_embedding_client(
         "dimensions=1536 elapsed_seconds=12.50",
         "source=jira next_line=42 documents=10 chunks=20 sentences=30",
     ]
+
+
+class _ContextConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+
+def test_reset_defers_large_indexes_after_schema_reset(monkeypatch, tmp_path):
+    calls = []
+    _safe_cli(monkeypatch, SimpleNamespace(root=tmp_path))
+    monkeypatch.setattr(
+        bulk_cli,
+        "reset_redwood_database",
+        lambda *_args: calls.append("reset"),
+    )
+    monkeypatch.setattr(
+        bulk_cli,
+        "_connection_factory",
+        lambda _url: lambda: _ContextConnection(),
+    )
+    monkeypatch.setattr(
+        bulk_cli,
+        "prepare_bulk_load",
+        lambda _conn: calls.append("defer_indexes"),
+    )
+
+    assert bulk_cli.main(["reset", "--data", str(tmp_path), "--yes"]) == 0
+    assert calls == ["reset", "defer_indexes"]
+
+
+def _verification_report(*, compatible=True):
+    return VerificationReport(
+        compatible=compatible,
+        counts={"documents": 8, "chunks": 12, "sentences": 20},
+        sources={"confluence": 1, "github": 1, "jira": 5, "slack": 1},
+        missing_embeddings=0,
+        acl_checks={"unknown_user_results": 0},
+        recall_at_10=0.75,
+        mrr=0.5,
+        p50_ms=10.0,
+        p95_ms=20.0,
+    )
+
+
+def test_verify_prints_safe_json_and_uses_released_profile(monkeypatch, capsys):
+    dataset = _safe_cli(monkeypatch)
+    calls = []
+    monkeypatch.setattr(
+        bulk_cli, "assert_redwood_database", lambda url: calls.append(("guard", url))
+    )
+    monkeypatch.setattr(
+        bulk_cli,
+        "verify_redwood",
+        lambda factory, data, client, profile: calls.append(
+            ("verify", data, profile.name)
+        )
+        or _verification_report(),
+    )
+    monkeypatch.setattr(bulk_cli, "_openai_client", lambda: object())
+
+    assert bulk_cli.main(["verify", "--data", str(dataset.root), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["compatible"] is True
+    assert payload["counts"]["documents"] == 8
+    assert calls == [
+        ("guard", REDWOOD_URL),
+        ("verify", dataset.root, "released"),
+    ]
+
+
+def test_verify_returns_failure_after_printing_incompatible_report(
+    monkeypatch, capsys
+):
+    _safe_cli(monkeypatch)
+    monkeypatch.setattr(bulk_cli, "assert_redwood_database", lambda _url: None)
+    monkeypatch.setattr(
+        bulk_cli, "verify_redwood", lambda *_args: _verification_report(compatible=False)
+    )
+    monkeypatch.setattr(bulk_cli, "_openai_client", lambda: object())
+
+    assert bulk_cli.main(["verify", "--data", "/safe/data", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["compatible"] is False
 
 
 def _executable(path: Path, text: str) -> Path:

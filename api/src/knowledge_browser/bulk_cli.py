@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 import time
 
 import psycopg
 
-from .bulk_import import run_import
+from .bulk_import import prepare_bulk_load, run_import
 from .bulk_state import assert_redwood_database, reset_redwood_database
+from .bulk_verify import verify_redwood
 from .config import database_url
 from .dataset import validate_streaming_dataset
+from .profiles import load_profile
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -21,6 +24,7 @@ SCHEMAS = (
     PROJECT_ROOT / "db" / "init" / "001_schema.sql",
     PROJECT_ROOT / "db" / "init" / "002_bulk_import.sql",
 )
+RELEASED_PROFILE = PROJECT_ROOT / "search" / "profiles" / "released.json"
 SAFE_ERRORS = {
     "batch_import_failed",
     "embedding_provider_failed",
@@ -151,6 +155,22 @@ def _print_status(url):
             )
 
 
+def _print_verification(report):
+    print(
+        f"compatible={'yes' if report.compatible else 'no'} "
+        f"documents={report.counts['documents']} "
+        f"chunks={report.counts['chunks']} "
+        f"sentences={report.counts['sentences']} "
+        f"missing_embeddings={report.missing_embeddings}"
+    )
+    print("sources=" + json.dumps(report.sources, sort_keys=True))
+    print("acl_checks=" + json.dumps(report.acl_checks, sort_keys=True))
+    print(
+        f"recall_at_10={report.recall_at_10:.4f} mrr={report.mrr:.4f} "
+        f"p50_ms={report.p50_ms:.2f} p95_ms={report.p95_ms:.2f}"
+    )
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
     if args.command == "reset" and not args.yes:
@@ -166,7 +186,10 @@ def main(argv=None):
             )
         elif args.command == "reset":
             validate_streaming_dataset(args.data)
-            reset_redwood_database(_database_url(args), SCHEMAS)
+            url = _database_url(args)
+            reset_redwood_database(url, SCHEMAS)
+            with _connection_factory(url)() as conn:
+                prepare_bulk_load(conn)
             print("Redwood database reset.")
         elif args.command == "run":
             dataset = validate_streaming_dataset(args.data)
@@ -184,9 +207,21 @@ def main(argv=None):
         elif args.command == "status":
             _print_status(_database_url(args))
         else:
-            validate_streaming_dataset(args.data)
-            assert_redwood_database(_database_url(args))
-            raise RuntimeError("verification is not implemented")
+            dataset = validate_streaming_dataset(args.data)
+            url = _database_url(args)
+            assert_redwood_database(url)
+            report = verify_redwood(
+                _connection_factory(url),
+                dataset.root,
+                _openai_client(),
+                load_profile(RELEASED_PROFILE),
+            )
+            if args.json:
+                print(json.dumps(report.safe_dict(), sort_keys=True))
+            else:
+                _print_verification(report)
+            if not report.compatible:
+                return 1
     except Exception:
         sys.stderr.write(ERRORS[args.command])
         return 1

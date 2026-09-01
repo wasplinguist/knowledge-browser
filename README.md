@@ -104,7 +104,17 @@ Redwood service.
 `reset` first validates the complete dataset and then requires `--yes`. It
 refuses every database name except `knowledge_redwood`. The import saves each
 completed batch, so running `run` again continues from the last saved line.
-Only uncached sentences need the configured OpenAI API key.
+Only uncached sentences need the configured OpenAI API key. The large text and
+vector indexes are built after all batches load. Status stays `indexing` until
+both indexes are valid, the tables are analyzed, and the run is complete.
+
+`verify` reads `qa.jsonl` without changing it and uses the released hybrid
+search profile. It checks exact document and source counts, embeddings,
+company/group/direct-user access, an unknown user, Recall@10, MRR, and local
+search p50/p95 latency. It needs the OpenAI API key for question embeddings.
+`--json` prints the same safe aggregate report to standard output; no report
+file is created in the repository. Review p95 against the two-second local
+target before using the full database.
 
 If a manually created container already uses the name
 `knowledge-redwood-db`, `start` stops safely. Remove that exact container only

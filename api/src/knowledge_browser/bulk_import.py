@@ -13,6 +13,7 @@ from .bulk_writer import (
     write_document_batch,
 )
 from .dataset import SOURCES, iter_artifacts
+from .db_compat import check_compatibility
 from .embedding_index import collect_sentences, embed_missing
 
 
@@ -69,13 +70,45 @@ def _set_run_state(conn, run_id, status, safe_error=None):
     result = conn.execute(
         """
         UPDATE public.bulk_import_runs
-        SET status = %s, safe_error = %s, updated_at = pg_catalog.now()
+        SET status = %s,
+            safe_error = %s,
+            updated_at = pg_catalog.now(),
+            completed_at = CASE
+              WHEN %s = 'complete' THEN pg_catalog.now()
+              ELSE NULL
+            END
         WHERE id = %s
         """,
-        (status, safe_error, run_id),
+        (status, safe_error, status, run_id),
     )
     if result.rowcount != 1:
         raise RuntimeError("bulk import run is missing")
+
+
+def finalize_indexes(conn, run_id) -> None:
+    """Build missing search indexes and complete the import atomically."""
+    _set_run_state(conn, run_id, "indexing")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS chunks_fts_idx "
+        "ON public.chunks USING gin (fts)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS sentences_embedding_idx "
+        "ON public.sentences USING hnsw (embedding halfvec_cosine_ops)"
+    )
+    conn.execute(
+        "ANALYZE public.users, public.documents, public.chunks, public.sentences"
+    )
+    report = check_compatibility(conn)
+    if any("index:" in issue for issue in report.issues):
+        raise RuntimeError("bulk import indexes failed compatibility checks")
+    _set_run_state(conn, run_id, "complete")
+
+
+def prepare_bulk_load(conn) -> None:
+    """Remove only indexes intentionally deferred during the Redwood load."""
+    conn.execute("DROP INDEX IF EXISTS public.chunks_fts_idx")
+    conn.execute("DROP INDEX IF EXISTS public.sentences_embedding_idx")
 
 
 def _record_failure(connection_factory, run_id, error):
@@ -196,9 +229,36 @@ def run_import(
                             and len(reports) >= stop_after_batches
                         ):
                             return ImportResult(run.id, False, tuple(reports))
+                    source_size = (
+                        dataset.root / "artifacts" / f"{source}.jsonl"
+                    ).stat().st_size
+                    if (
+                        progress.next_offset != source_size
+                        or progress.next_line != progress.documents + 1
+                    ):
+                        raise RuntimeError("source checkpoint is incomplete")
+
+                loaded_documents = conn.execute(
+                    """
+                    SELECT COALESCE(sum(documents), 0)
+                    FROM public.bulk_import_progress
+                    WHERE run_id = %s
+                    """,
+                    (run.id,),
+                ).fetchone()[0]
+                expected_documents = dataset.manifest.get("counts", {}).get(
+                    "artifacts"
+                )
+                if (
+                    expected_documents is not None
+                    and loaded_documents != expected_documents
+                ):
+                    raise RuntimeError("source checkpoint is incomplete")
 
                 with conn.transaction():
                     _set_run_state(conn, run.id, "indexing")
+                with conn.transaction():
+                    finalize_indexes(conn, run.id)
                 return ImportResult(run.id, True, tuple(reports))
             except Exception as error:
                 if run is not None:
