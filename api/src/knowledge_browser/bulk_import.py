@@ -124,6 +124,7 @@ def run_import(
         raise ValueError("stop_after_batches must not be negative")
 
     run = None
+    failure_recorded = False
     try:
         with connection_factory() as conn:
             _acquire_import_lock(conn)
@@ -199,9 +200,14 @@ def run_import(
                 with conn.transaction():
                     _set_run_state(conn, run.id, "indexing")
                 return ImportResult(run.id, True, tuple(reports))
+            except Exception as error:
+                if run is not None:
+                    failure_recorded = True
+                    _record_failure(connection_factory, run.id, error)
+                raise
             finally:
                 _release_import_lock(conn)
     except Exception as error:
-        if run is not None:
+        if run is not None and not failure_recorded:
             _record_failure(connection_factory, run.id, error)
         raise

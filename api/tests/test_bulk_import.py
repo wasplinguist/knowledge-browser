@@ -303,6 +303,62 @@ def test_concurrent_runs_do_not_repeat_provider_work_or_move_progress_backward(
         assert conn.execute("SELECT count(*) FROM documents").fetchone() == (3,)
 
 
+def test_waiting_successful_run_is_not_overwritten_by_an_older_failure(
+    connection_factory, tiny_dataset, monkeypatch
+):
+    failure_record_started = Event()
+    allow_failure_record = Event()
+    successful_run_completed = Event()
+    original_record_failure = bulk_import._record_failure
+
+    class FailingClient:
+        def __init__(self):
+            self.embeddings = self
+
+        def create(self, **_request):
+            raise RuntimeError("first importer failed")
+
+    def delayed_record_failure(*args):
+        failure_record_started.set()
+        if not allow_failure_record.wait(5):
+            raise TimeoutError("failure record was not released")
+        original_record_failure(*args)
+
+    def complete_import():
+        try:
+            return run_import(
+                connection_factory,
+                tiny_dataset,
+                FakeEmbeddingClient,
+                document_batch_size=3,
+            )
+        finally:
+            successful_run_completed.set()
+
+    monkeypatch.setattr(bulk_import, "_record_failure", delayed_record_failure)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        failed = executor.submit(
+            run_import,
+            connection_factory,
+            tiny_dataset,
+            FailingClient,
+        )
+        assert failure_record_started.wait(5)
+        successful = executor.submit(complete_import)
+        successful_run_completed.wait(2)
+        allow_failure_record.set()
+        with pytest.raises(RuntimeError, match="first importer failed"):
+            failed.result(timeout=5)
+        successful_result = successful.result(timeout=5)
+
+    with connection_factory() as conn:
+        assert conn.execute(
+            "SELECT status, safe_error FROM bulk_import_runs WHERE id = %s",
+            (successful_result.run_id,),
+        ).fetchone() == ("indexing", None)
+        assert conn.execute("SELECT count(*) FROM documents").fetchone() == (3,)
+
+
 def test_cache_rows_documents_and_progress_roll_back_together(
     connection_factory, tiny_dataset, monkeypatch
 ):
