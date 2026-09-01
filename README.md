@@ -84,6 +84,32 @@ launch the project Docker database.
 the grounded-answer model. If a query embedding fails after setup, keyword
 search remains available.
 
+### Full Redwood database
+
+The ignored local `data/redwood/` dataset can be imported into a separate
+PostgreSQL database. This workflow never changes the normal
+`knowledge_search` database, and normal `docker compose up` does not start the
+Redwood service.
+
+```bash
+./scripts/redwood_database.sh start
+./scripts/redwood_database.sh validate --data /path/to/redwood
+./scripts/redwood_database.sh reset --data /path/to/redwood --yes
+./scripts/redwood_database.sh run --data /path/to/redwood
+./scripts/redwood_database.sh status
+./scripts/redwood_database.sh verify --data /path/to/redwood --json
+./scripts/redwood_database.sh stop
+```
+
+`reset` first validates the complete dataset and then requires `--yes`. It
+refuses every database name except `knowledge_redwood`. The import saves each
+completed batch, so running `run` again continues from the last saved line.
+Only uncached sentences need the configured OpenAI API key.
+
+If a manually created container already uses the name
+`knowledge-redwood-db`, `start` stops safely. Remove that exact container only
+after confirming it is the old Redwood pilot, then run `start` again.
+
 ## Product behavior
 
 Choose a user from the Demo user menu, then search across Slack, Jira,
