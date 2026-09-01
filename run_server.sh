@@ -38,22 +38,47 @@ free_port "$web_port"
 
 api_pid=""
 web_pid=""
+child_status_dir="$(mktemp -d)"
+first_status_path="$child_status_dir/first"
 cleanup() {
   [ -z "$api_pid" ] || kill "$api_pid" 2>/dev/null || true
   [ -z "$web_pid" ] || kill "$web_pid" 2>/dev/null || true
-  wait 2>/dev/null || true
+  [ -z "$api_pid" ] || wait "$api_pid" 2>/dev/null || true
+  [ -z "$web_pid" ] || wait "$web_pid" 2>/dev/null || true
+  rm -rf "$child_status_dir"
 }
 trap cleanup EXIT
 trap 'cleanup; exit 0' INT TERM
 
-"${UVICORN_BIN:-$project_root/api/.venv/bin/uvicorn}" knowledge_browser.main:app --reload --app-dir "$project_root/api/src" --host 127.0.0.1 --port "$api_port" &
+run_watched() {
+  local name="$1" child_pid="" status
+  shift
+  trap '[ -z "$child_pid" ] || kill "$child_pid" 2>/dev/null || true; [ -z "$child_pid" ] || wait "$child_pid" 2>/dev/null || true; exit 143' INT TERM
+  "$@" &
+  child_pid=$!
+  set +e
+  wait "$child_pid"
+  status=$?
+  set -e
+  trap - INT TERM
+  if mkdir "$child_status_dir/claimed" 2>/dev/null; then
+    printf '%s %s\n' "$name" "$status" >"$first_status_path"
+  fi
+  return "$status"
+}
+
+run_watched api "${UVICORN_BIN:-$project_root/api/.venv/bin/uvicorn}" knowledge_browser.main:app --reload --app-dir "$project_root/api/src" --host 127.0.0.1 --port "$api_port" &
 api_pid=$!
 (
   cd "$project_root/web"
-  exec "${VITE_BIN:-./node_modules/.bin/vite}" --host 127.0.0.1 --port "$web_port"
+  run_watched web "${VITE_BIN:-./node_modules/.bin/vite}" --host 127.0.0.1 --port "$web_port"
 ) &
 web_pid=$!
 
 echo "API: http://127.0.0.1:$api_port"
 echo "Web: http://127.0.0.1:$web_port"
-wait "$api_pid" "$web_pid"
+while [ ! -s "$first_status_path" ]; do
+  sleep "${RUN_SERVER_CHILD_POLL_SLEEP:-0.05}"
+done
+read -r first_service first_status <"$first_status_path"
+exit "$first_status"

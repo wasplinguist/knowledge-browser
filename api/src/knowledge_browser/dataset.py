@@ -10,10 +10,22 @@ from typing import Any
 
 
 SOURCES = ("slack", "jira", "github", "confluence")
+COUNT_KEYS = (
+    "artifacts",
+    "companies",
+    "employees",
+    "incidents",
+    "projects",
+    "qa",
+    "teams",
+)
 REQUIRED_FILES = (
+    "world.json",
     "employees.jsonl",
     "teams.jsonl",
     "projects.jsonl",
+    "events.jsonl",
+    "qa.jsonl",
     "acl.jsonl",
     *(f"artifacts/{source}.jsonl" for source in SOURCES),
 )
@@ -111,6 +123,12 @@ def validate_manifest(data_dir: Path) -> dict[str, Any]:
         raise _error("data directory is missing")
     root_resolved = root.resolve()
     manifest = _json_file(root / "manifest.json")
+    counts = manifest.get("counts")
+    if not isinstance(counts, dict) or set(counts) != set(COUNT_KEYS):
+        raise _error(f"manifest counts must contain exactly: {', '.join(COUNT_KEYS)}")
+    for name, count in counts.items():
+        if type(count) is not int or count < 0:
+            raise _error(f"manifest count {name} must be a non-negative integer")
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise _error("manifest files must be an object")
@@ -134,6 +152,25 @@ def validate_manifest(data_dir: Path) -> dict[str, Any]:
             raise _error(f"missing file: {relative}")
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
             raise _error(f"manifest hash mismatch: {relative}")
+
+    world = _json_file(root / "world.json")
+    if not isinstance(world.get("company"), dict):
+        raise _error("world.json company must contain an object")
+    actual_counts = {
+        "artifacts": sum(
+            len(_jsonl(root / "artifacts" / f"{source}.jsonl"))
+            for source in SOURCES
+        ),
+        "companies": 1,
+        "employees": len(_jsonl(root / "employees.jsonl")),
+        "incidents": len(_jsonl(root / "events.jsonl")),
+        "projects": len(_jsonl(root / "projects.jsonl")),
+        "qa": len(_jsonl(root / "qa.jsonl")),
+        "teams": len(_jsonl(root / "teams.jsonl")),
+    }
+    for name in COUNT_KEYS:
+        if counts[name] != actual_counts[name]:
+            raise _error(f"manifest count mismatch: {name}")
     return manifest
 
 
@@ -380,7 +417,25 @@ def _document(artifact: dict[str, Any], source: str, context: dict[str, Any]) ->
         _add_field(fields, "section_body", bodies)
         body, document_kind = "\n".join(bodies), "confluence_page"
 
-    return ParsedDocument(source, document_kind, artifact_id, title, body, context["names"][author_id], f"https://synthetic.local/{source}/{artifact_id}", container, _optional_string(artifact.get("created_at"), f"artifact {artifact_id} created_at"), _optional_string(artifact.get("updated_at"), f"artifact {artifact_id} updated_at"), _mapped_acl(artifact.get("acl"), context), artifact, fields)
+    return ParsedDocument(
+        source=source,
+        kind=document_kind,
+        external_id=artifact_id,
+        title=title,
+        body=body,
+        author=context["names"][author_id],
+        url=f"https://synthetic.local/{source}/{artifact_id}",
+        container=container,
+        created_at=_optional_string(
+            artifact.get("created_at"), f"artifact {artifact_id} created_at"
+        ),
+        updated_at=_optional_string(
+            artifact.get("updated_at"), f"artifact {artifact_id} updated_at"
+        ),
+        acl=_mapped_acl(artifact.get("acl"), context),
+        raw_payload=artifact,
+        fields=fields,
+    )
 
 
 def load_dataset(data_dir: Path) -> Dataset:

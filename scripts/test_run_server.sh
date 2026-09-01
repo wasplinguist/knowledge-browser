@@ -13,6 +13,7 @@ if [ -e "$env_file" ]; then
   had_env=1
 fi
 cleanup() {
+  [ -z "${case_runner:-}" ] || kill "$case_runner" 2>/dev/null || true
   [ -z "${old_listener:-}" ] || kill "$old_listener" 2>/dev/null || true
   [ -z "${old_web_listener:-}" ] || kill "$old_web_listener" 2>/dev/null || true
   [ -z "${stubborn_listener:-}" ] || kill -KILL "$stubborn_listener" 2>/dev/null || true
@@ -25,6 +26,7 @@ log="$tmp/log"
 old_listener=""
 old_web_listener=""
 stubborn_listener=""
+case_runner=""
 choose_port() {
   python3 -c 'import socket; sock = socket.socket(); sock.bind(("127.0.0.1", 0)); print(sock.getsockname()[1]); sock.close()'
 }
@@ -61,8 +63,17 @@ printf 'python DATABASE_URL=%s %s\n' "${DATABASE_URL:-}" "$*" >>"$FAKE_LOG"
 EOF
 cat >"$tmp/server" <<'EOF'
 #!/usr/bin/env bash
-printf 'server DATABASE_URL=%s API_PORT=%s WEB_PORT=%s %s\n' "${DATABASE_URL:-}" "${API_PORT:-}" "${WEB_PORT:-}" "$*" >>"$FAKE_LOG"
-trap 'printf "server-cleanup\n" >>"$FAKE_LOG"; exit 0' TERM INT
+case " $* " in
+  *" knowledge_browser.main:app "*) service=api ;;
+  *) service=web ;;
+esac
+printf 'server-%s DATABASE_URL=%s API_PORT=%s WEB_PORT=%s %s\n' "$service" "${DATABASE_URL:-}" "${API_PORT:-}" "${WEB_PORT:-}" "$*" >>"$FAKE_LOG"
+trap 'printf "server-cleanup-%s\n" "$service" >>"$FAKE_LOG"; exit 0' TERM INT
+if [ "${EXIT_SERVICE:-}" = "$service" ]; then
+  sleep "${EXIT_DELAY:-0.05}"
+  printf 'server-exit-%s-%s\n' "$service" "$EXIT_STATUS" >>"$FAKE_LOG"
+  exit "$EXIT_STATUS"
+fi
 while :; do sleep 1; done
 EOF
 chmod +x "$tmp/lsof" "$tmp/docker" "$tmp/python" "$tmp/server"
@@ -73,13 +84,13 @@ FAKE_LOG="$log" OLD_LISTENER="$old_listener" OLD_WEB_LISTENER="$old_web_listener
   OPENAI_API_KEY=from-process PORT_RELEASE_SLEEP=0 bash "$root/run_server.sh" >"$tmp/out" 2>&1 &
 runner=$!
 for _ in $(seq 1 50); do
-  grep -q '^server ' "$log" 2>/dev/null && break
+  grep -q '^server-' "$log" 2>/dev/null && break
   sleep 0.05
 done
 grep -F "API: http://127.0.0.1:$api_port" "$tmp/out" >/dev/null
 grep -F "Web: http://127.0.0.1:$web_port" "$tmp/out" >/dev/null
-grep -F "server DATABASE_URL=from-process API_PORT=$api_port WEB_PORT=$web_port knowledge_browser.main:app --reload --app-dir " "$log" >/dev/null
-grep -F "server DATABASE_URL=from-process API_PORT=$api_port WEB_PORT=$web_port --host 127.0.0.1 --port $web_port" "$log" >/dev/null
+grep -F "server-api DATABASE_URL=from-process API_PORT=$api_port WEB_PORT=$web_port knowledge_browser.main:app --reload --app-dir " "$log" >/dev/null
+grep -F "server-web DATABASE_URL=from-process API_PORT=$api_port WEB_PORT=$web_port --host 127.0.0.1 --port $web_port" "$log" >/dev/null
 if kill -0 "$old_listener" 2>/dev/null; then
   echo 'configured API port listener was not stopped' >&2
   exit 1
@@ -90,7 +101,45 @@ if kill -0 "$old_web_listener" 2>/dev/null; then
 fi
 kill -TERM "$runner"
 wait "$runner"
-test "$(grep -c '^server-cleanup$' "$log")" = 2
+test "$(grep -c '^server-cleanup-' "$log")" = 2
+
+assert_first_exit() {
+  local service="$1" expected_status="$2" actual_status
+  : >"$log"
+  FAKE_LOG="$log" EXIT_SERVICE="$service" EXIT_STATUS="$expected_status" \
+    PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" UVICORN_BIN="$tmp/server" \
+    VITE_BIN="$tmp/server" DATABASE_URL=from-process API_PORT="$api_port" \
+    WEB_PORT="$web_port" RUN_SERVER_CHILD_POLL_SLEEP=0.01 \
+    bash "$root/run_server.sh" >"$tmp/out" 2>&1 &
+  case_runner=$!
+  for _ in $(seq 1 200); do
+    kill -0 "$case_runner" 2>/dev/null || break
+    sleep 0.01
+  done
+  if kill -0 "$case_runner" 2>/dev/null; then
+    echo "$service-first runner did not exit promptly" >&2
+    return 1
+  fi
+  set +e
+  wait "$case_runner"
+  actual_status=$?
+  set -e
+  case_runner=""
+  [ "$actual_status" -eq "$expected_status" ] || {
+    echo "$service-first status $actual_status, expected $expected_status" >&2
+    return 1
+  }
+  grep -Fx "server-exit-$service-$expected_status" "$log" >/dev/null
+  case "$service" in
+    api) grep -Fx 'server-cleanup-web' "$log" >/dev/null ;;
+    web) grep -Fx 'server-cleanup-api' "$log" >/dev/null ;;
+  esac
+}
+
+assert_first_exit api 0
+assert_first_exit api 23
+assert_first_exit web 0
+assert_first_exit web 37
 
 bash -c 'trap "" TERM; while :; do sleep 1; done' & stubborn_listener=$!
 disown "$stubborn_listener" || true

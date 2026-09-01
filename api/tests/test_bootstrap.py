@@ -1,5 +1,7 @@
 import importlib.util
+import json
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import psycopg
@@ -101,6 +103,25 @@ def test_empty_incompatible_database_skips_provider(connection_factory):
 
     with pytest.raises(bootstrap.BootstrapError, match="empty database is incompatible"):
         bootstrap.bootstrap_database(connection_factory, DATA, client_factory)
+
+    assert called is False
+
+
+def test_manifest_count_failure_skips_provider(connection_factory, tmp_path):
+    copied = shutil.copytree(DATA, tmp_path / "company")
+    manifest_path = copied / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["counts"]["employees"] += 1
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    called = False
+
+    def client_factory():
+        nonlocal called
+        called = True
+        raise AssertionError("provider must not run")
+
+    with pytest.raises(ValueError, match="manifest count mismatch: employees"):
+        bootstrap.bootstrap_database(connection_factory, copied, client_factory)
 
     assert called is False
 

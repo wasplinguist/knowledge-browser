@@ -22,7 +22,10 @@ load_environment
 python_bin="${PYTHON_BIN:-$project_root/api/.venv/bin/python}"
 table_count_sql="SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('users', 'groups', 'group_memberships', 'permission_sets', 'permission_set_users', 'permission_set_groups', 'documents', 'chunks', 'sentences', 'search_events', 'search_clicks')"
 
-database_url="$("$python_bin" -c 'from knowledge_browser.config import database_url; print(database_url())')"
+if ! database_url="$("$python_bin" -c 'from knowledge_browser.config import database_url; print(database_url())' 2>/dev/null)"; then
+  echo "database configuration failed; check database settings" >&2
+  exit 1
+fi
 export DATABASE_URL="$database_url"
 
 if [ "$explicit_database_url" -eq 0 ]; then docker compose up -d db; fi
@@ -33,26 +36,29 @@ import os
 import psycopg
 with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
     conn.execute("SELECT 1")
-'; then
+' >/dev/null 2>&1; then
     ready=1
     break
   fi
   sleep "${SETUP_DATABASE_READY_SLEEP:-1}"
 done
 if [ "$ready" -ne 1 ]; then
-  echo "database did not become ready" >&2
+  echo "database did not become ready; check database settings and database service logs" >&2
   exit 1
 fi
 
-table_count="$("$python_bin" -c '
+if ! table_count="$("$python_bin" -c '
 import os
 import psycopg
 with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
     print(conn.execute("'"$table_count_sql"'").fetchone()[0])
-' | tr -d '[:space:]')"
+' 2>/dev/null)"; then
+  echo "database schema inspection failed; check database access" >&2
+  exit 1
+fi
 case "$table_count" in
   0)
-    "$python_bin" -c '
+    if ! "$python_bin" -c '
 import os
 from pathlib import Path
 import sys
@@ -60,7 +66,10 @@ import psycopg
 schema_sql = Path(sys.argv[1]).read_text()
 with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
     conn.execute(schema_sql)
-' "$project_root/db/init/001_schema.sql"
+' "$project_root/db/init/001_schema.sql" >/dev/null 2>&1; then
+      echo "database schema setup failed; check database access and Compose logs" >&2
+      exit 1
+    fi
     ;;
   11) ;;
   *)
