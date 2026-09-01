@@ -216,6 +216,38 @@ def test_answer_route_uses_lazy_runtime_provider_when_key_exists(db, monkeypatch
     assert response.json()["evidence_status"] == "incomplete"
 
 
+def test_answer_route_returns_safe_error_when_provenance_is_missing(db, monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "answer_question",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            main_module.AnswerExecutionError(
+                {"mode": "fast", "opened_chunks": 0}, []
+            )
+        ),
+    )
+
+    response = _client(
+        db, answer_client=SimpleNamespace(responses=object())
+    ).post(
+        "/api/answer",
+        headers={"X-Demo-User-Id": COMPANY_USER},
+        json={"question": "Who owns Company?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "answer": None,
+        "citations": [],
+        "follow_ups": [],
+        "error": {
+            "code": "answer_unavailable",
+            "message": "AI answer is unavailable",
+        },
+        "execution": {"mode": "fast", "opened_chunks": 0},
+    }
+
+
 def test_answer_route_rejects_unknown_mode(db):
     response = _client(db).post(
         "/api/answer",

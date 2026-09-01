@@ -94,6 +94,9 @@ def test_answer_starts_with_shared_hybrid_results_and_cites_opened_evidence(monk
     assert searches == [("Why was the router slow?", [1.0], None, "released")]
     assert answer["evidence_status"] == "complete"
     assert answer["citations"][0]["chunk_id"] == hit["chunk_id"]
+    assert responses.requests[0]["tool_choice"] == {
+        "type": "function", "name": "read_chunk",
+    }
     assert "Queue incident" in responses.requests[0]["input"][0]["content"]
     assert "Use the initial allowed hybrid results first" in responses.requests[0]["instructions"]
     assert "only when they do not contain enough evidence" in responses.requests[0]["instructions"]
@@ -154,7 +157,7 @@ def test_answer_model_uses_environment_override(monkeypatch):
     assert result["execution"]["model"] == "configured-answer-model"
 
 
-def test_unopened_citation_is_removed_and_complete_is_downgraded(monkeypatch):
+def test_factual_answer_with_results_and_no_opened_citation_fails_closed(monkeypatch):
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [_result()])
     responses = Responses([_final({
         "answer": "Unsupported claim",
@@ -162,13 +165,37 @@ def test_unopened_citation_is_removed_and_complete_is_downgraded(monkeypatch):
         "citations": ["never-opened"],
     })])
 
-    answer = answer_module.answer_question(
-        None, "user", "Who owns it?", lambda _query: None,
-        SimpleNamespace(responses=responses),
-    )
+    with pytest.raises(answer_module.AnswerExecutionError):
+        answer_module.answer_question(
+            None, "user", "Who owns it?", lambda _query: None,
+            SimpleNamespace(responses=responses),
+        )
 
-    assert answer["citations"] == []
-    assert answer["evidence_status"] == "incomplete"
+
+def test_later_search_results_also_require_an_opened_citation(monkeypatch):
+    hit = _result()
+    searches = iter(([], [hit]))
+    monkeypatch.setattr(
+        answer_module, "hybrid_search", lambda *_args: next(searches)
+    )
+    responses = Responses([
+        _call("search", "hybrid_search", {"query": "better query", "source": None}),
+        _final({
+            "answer": "The queue was saturated.",
+            "evidence_status": "incomplete",
+            "citations": [],
+        }),
+    ])
+
+    with pytest.raises(answer_module.AnswerExecutionError):
+        answer_module.answer_question(
+            None, "user", "What happened?", lambda _query: None,
+            SimpleNamespace(responses=responses),
+        )
+
+    assert responses.requests[1]["tool_choice"] == {
+        "type": "function", "name": "read_chunk",
+    }
 
 
 def test_two_opened_conflict_citations_force_conflicting(monkeypatch):
