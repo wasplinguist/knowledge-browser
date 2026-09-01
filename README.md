@@ -198,7 +198,8 @@ independently from search output.
 
 The dataset contains 100 employees in 10 teams, 25 projects, 125 incidents, and
 1,000 artifacts—250 from each source. `data/company/manifest.json` fingerprints
-the imported files. The evaluation definitions are separated by runtime cost:
+every listed dataset file. The evaluation definitions are separated by runtime
+cost:
 
 | File | Purpose |
 | --- | --- |
