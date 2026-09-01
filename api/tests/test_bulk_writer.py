@@ -41,6 +41,14 @@ def test_identity_import_is_idempotent(db, validated_dataset):
 
     assert first == second
     assert db.execute("SELECT count(*) FROM users").fetchone() == (len(first.users),)
+    expected_memberships = sorted(
+        (first.groups[group["name"]], first.users[email])
+        for group in validated_dataset.context["identity_groups"]
+        for email in group["members"]
+    )
+    assert db.execute(
+        "SELECT group_id, user_id FROM group_memberships ORDER BY group_id, user_id"
+    ).fetchall() == expected_memberships
 
 
 def test_permissions_link_company_group_and_direct_user_exactly(db, validated_dataset):
@@ -48,16 +56,32 @@ def test_permissions_link_company_group_and_direct_user_exactly(db, validated_da
     identities = import_identities(db, validated_dataset.context, page_size=10)
     group_name = next(iter(identities.groups))
     user_email = next(iter(identities.users))
+    default_acl = None
     company_acl = {"company": True}
     group_acl = {"groups": [group_name]}
     direct_acl = {"users": [user_email]}
 
-    ensure_permissions(db, (company_acl, group_acl, direct_acl), identities)
+    acls = (default_acl, company_acl, group_acl, direct_acl)
+    ensure_permissions(db, acls, identities)
+    ensure_permissions(db, acls, identities)
 
+    assert db.execute("SELECT count(*) FROM permission_sets").fetchone() == (4,)
+    assert db.execute(
+        "SELECT visibility FROM permission_sets WHERE id = %s",
+        (permission_id(default_acl),),
+    ).fetchone() == ("restricted",)
     assert db.execute(
         "SELECT visibility FROM permission_sets WHERE id = %s",
         (permission_id(company_acl),),
     ).fetchone() == ("company",)
+    assert db.execute(
+        "SELECT count(*) FROM permission_set_users WHERE permission_set_id = %s",
+        (permission_id(default_acl),),
+    ).fetchone() == (0,)
+    assert db.execute(
+        "SELECT count(*) FROM permission_set_groups WHERE permission_set_id = %s",
+        (permission_id(default_acl),),
+    ).fetchone() == (0,)
     assert db.execute(
         "SELECT count(*) FROM permission_set_users WHERE permission_set_id = %s",
         (permission_id(company_acl),),
