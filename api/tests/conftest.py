@@ -54,7 +54,7 @@ def _prepare_test_database() -> str:
         if not exists:
             admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
 
-    schema = Path(__file__).parent / "fixtures" / "existing_schema.sql"
+    schema = Path(__file__).parents[2] / "db" / "init" / "001_schema.sql"
     with psycopg.connect(url) as conn:
         conn.execute("DROP SCHEMA public CASCADE")
         conn.execute("CREATE SCHEMA public")
