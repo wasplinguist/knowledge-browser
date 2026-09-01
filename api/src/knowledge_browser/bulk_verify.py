@@ -27,7 +27,7 @@ class VerificationReport:
     counts: dict[str, int]
     sources: dict[str, int]
     missing_embeddings: int
-    acl_checks: dict[str, bool | int]
+    acl_checks: dict[str, bool | int | str | None]
     recall_at_10: float
     mrr: float
     p50_ms: float
@@ -68,12 +68,18 @@ def _read_qa(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _source_counts(root: Path) -> dict[str, int]:
+def _source_summary(root: Path) -> tuple[dict[str, int], bool]:
     counts = {}
+    has_direct_acl = False
     for source in SOURCES:
         with (root / "artifacts" / f"{source}.jsonl").open("rb") as stream:
-            counts[source] = sum(1 for _ in stream)
-    return counts
+            count = 0
+            for line in stream:
+                count += 1
+                acl = json.loads(line).get("acl", {})
+                has_direct_acl = has_direct_acl or bool(acl.get("user_ids"))
+            counts[source] = count
+    return counts, has_direct_acl
 
 
 def _counts(conn, model: str) -> dict[str, int]:
@@ -208,7 +214,13 @@ def _unauthorized_user(conn, permission_set_id):
     return row[0] if row else None
 
 
-def _acl_checks(conn, representatives, embeddings, profile: SearchProfile):
+def _acl_checks(
+    conn,
+    representatives,
+    embeddings,
+    profile: SearchProfile,
+    direct_applicable: bool,
+):
     company = representatives["company"]
     group = representatives["group"]
     direct = representatives["direct"]
@@ -244,16 +256,24 @@ def _acl_checks(conn, representatives, embeddings, profile: SearchProfile):
         return protected_results(row, user)
 
     unknown_user = uuid4()
+    unknown_rows = (
+        (company, group, direct) if direct_applicable else (company, group)
+    )
 
     return {
         "company_visible": visible(company),
         "group_visible": visible(group),
         "group_unauthorized_results": unauthorized_results(group),
-        "direct_user_visible": visible(direct),
-        "direct_unauthorized_results": unauthorized_results(direct),
+        "direct_user_status": (
+            "checked" if direct_applicable else "not_applicable"
+        ),
+        "direct_user_visible": visible(direct) if direct_applicable else None,
+        "direct_unauthorized_results": (
+            unauthorized_results(direct) if direct_applicable else None
+        ),
         "unknown_user_results": sum(
             len(search(row, unknown_user))
-            for row in (company, group, direct)
+            for row in unknown_rows
             if row
         ),
     }
@@ -269,7 +289,7 @@ def verify_redwood(
     root = Path(data_dir)
     manifest = _read_json(root / "manifest.json")
     questions = _read_qa(root / "qa.jsonl")
-    expected_sources = _source_counts(root)
+    expected_sources, has_direct_acl = _source_summary(root)
     manifest_digest = hashlib.sha256(
         (root / "manifest.json").read_bytes()
     ).hexdigest()
@@ -306,8 +326,11 @@ def verify_redwood(
         if not accessible:
             raise ValueError("qa.jsonl has no accessible questions")
         representatives = {
-            kind: _representative(conn, kind)
-            for kind in ("company", "group", "direct")
+            "company": _representative(conn, "company"),
+            "group": _representative(conn, "group"),
+            "direct": (
+                _representative(conn, "direct") if has_direct_acl else None
+            ),
         }
         embedding_texts = [
             question["question"] for _, question in accessible
@@ -348,6 +371,7 @@ def verify_redwood(
             representatives,
             embeddings,
             profile,
+            has_direct_acl,
         )
 
     sources = compatibility.document_source_counts
@@ -376,13 +400,17 @@ def verify_redwood(
         and run[4] == profile.embedding_model
         and run[5] == 1536
     )
+    direct_safe = acl_checks["direct_user_status"] == "not_applicable" or (
+        acl_checks["direct_user_status"] == "checked"
+        and acl_checks["direct_user_visible"]
+        and acl_checks["direct_unauthorized_results"] == 0
+    )
     acl_safe = (
         acl_checks["company_visible"]
         and acl_checks["group_visible"]
-        and acl_checks["direct_user_visible"]
         and acl_checks["group_unauthorized_results"] == 0
-        and acl_checks["direct_unauthorized_results"] == 0
         and acl_checks["unknown_user_results"] == 0
+        and direct_safe
     )
     p50_ms = statistics.median(latencies)
     p95_ms = (

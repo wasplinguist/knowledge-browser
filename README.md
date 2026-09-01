@@ -110,7 +110,10 @@ both indexes are valid, the tables are analyzed, and the run is complete.
 
 `verify` reads `qa.jsonl` without changing it and uses the released hybrid
 search profile. Its ACL probes also use that real search path for company,
-group, direct-user, unauthorized, and unknown-user checks. It checks exact
+group, unauthorized, and unknown-user checks. When the validated source data
+contains direct-user ACLs, it also runs strict authorized and unauthorized
+direct-user searches. When there are none, the report shows
+`direct_user_status: not_applicable` with null direct results. It checks exact
 document and source counts, embeddings, Recall@10, MRR, and local search
 p50/p95 latency. Semantic retrieval uses the finalized partition HNSW indexes
 before bounded result deduplication. Verification fails when p95 is over the

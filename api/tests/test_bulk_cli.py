@@ -289,7 +289,12 @@ def _verification_report(*, compatible=True, p95_ms=20.0):
         counts={"documents": 8, "chunks": 12, "sentences": 20},
         sources={"confluence": 1, "github": 1, "jira": 5, "slack": 1},
         missing_embeddings=0,
-        acl_checks={"unknown_user_results": 0},
+        acl_checks={
+            "direct_user_status": "not_applicable",
+            "direct_user_visible": None,
+            "direct_unauthorized_results": None,
+            "unknown_user_results": 0,
+        },
         recall_at_10=0.75,
         mrr=0.5,
         p50_ms=10.0,
@@ -317,6 +322,8 @@ def test_verify_prints_safe_json_and_uses_released_profile(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["compatible"] is True
     assert payload["counts"]["documents"] == 8
+    assert payload["acl_checks"]["direct_user_status"] == "not_applicable"
+    assert payload["acl_checks"]["direct_user_visible"] is None
     assert calls == [
         ("guard", REDWOOD_URL),
         ("verify", dataset.root, "released"),
