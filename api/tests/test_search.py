@@ -521,8 +521,18 @@ def test_read_chunk_context_returns_same_field_siblings_with_selected_first(db):
         (document_id, document_id, document_id),
     )
 
+    class CountingConnection:
+        def __init__(self, connection):
+            self.connection = connection
+            self.calls = 0
+
+        def execute(self, *args, **kwargs):
+            self.calls += 1
+            return self.connection.execute(*args, **kwargs)
+
+    counting = CountingConnection(db)
     context = search_module.read_chunk_context(
-        db, company_user, "jira", "jira:COMPANY-1:1", limit=3
+        counting, company_user, "jira", "jira:COMPANY-1:1", limit=3
     )
 
     assert [item["chunk_id"] for item in context] == [
@@ -530,6 +540,15 @@ def test_read_chunk_context_returns_same_field_siblings_with_selected_first(db):
         "jira:COMPANY-1:0",
         "jira:COMPANY-1:2",
     ]
+    assert counting.calls == 1
     assert search_module.read_chunk_context(
         db, company_user, "jira", "jira:VISIBLE-CHILD:0", limit=3
+    ) == []
+    assert search_module.read_chunk_context(
+        db, company_user, "jira", "jira:HIDDEN-CHILD:0", limit=3
+    ) == []
+
+    _seed_malformed_root_chain(db)
+    assert search_module.read_chunk_context(
+        db, company_user, "jira", "jira:CHAIN-CHILD:0", limit=3
     ) == []

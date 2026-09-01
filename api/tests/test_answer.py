@@ -161,6 +161,52 @@ def test_answer_opens_related_document_chunks_before_writing(monkeypatch):
     assert answer["citations"][0]["chunk_id"] == root_cause["chunk_id"]
 
 
+def test_repeated_context_reads_do_not_resend_opened_chunks(monkeypatch):
+    chunks = [
+        {**_result(f"jira:DOC-1:{index}"), "text": f"Evidence {index}"}
+        for index in range(3)
+    ]
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [chunks[0]])
+    monkeypatch.setattr(
+        answer_module, "read_chunk_context", lambda *_args: chunks
+    )
+    responses = Responses([
+        SimpleNamespace(
+            id="reads",
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    name="read_chunk",
+                    arguments=json.dumps({
+                        "source": "jira", "chunk_id": chunks[0]["chunk_id"],
+                    }),
+                    call_id=f"call-{index}",
+                )
+                for index in range(2)
+            ],
+            output_text="",
+        ),
+        _final({
+            "answer": "Evidence [1].",
+            "evidence_status": "complete",
+            "citations": [chunks[0]["chunk_id"]],
+            "conflicts": [],
+            "missing_information": [],
+            "follow_ups": [],
+        }),
+    ])
+
+    answer = answer_module.answer_question(
+        None, "user", "What happened?", lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    outputs = responses.requests[1]["input"]
+    assert len(json.loads(outputs[0]["output"])) == 3
+    assert json.loads(outputs[1]["output"]) == []
+    assert answer["execution"]["opened_chunks"] == 3
+
+
 def test_every_answer_request_uses_strict_structured_output(monkeypatch):
     hit = _result()
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])

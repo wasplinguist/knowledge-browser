@@ -254,20 +254,24 @@ def answer_question(
                     and len(opened) < max_reads
                 ):
                     requested_id = arguments["chunk_id"]
-                    result = read_chunk_context(
+                    context = read_chunk_context(
                         conn, user_id, requested_source, requested_id,
                         max_reads - len(opened),
                     )
-                    if not result:
+                    if not context:
                         resolved_id = discovered.get((requested_source, requested_id))
                         if resolved_id:
-                            result = read_chunk_context(
+                            context = read_chunk_context(
                                 conn, user_id, requested_source, resolved_id,
                                 max_reads - len(opened),
                             )
-                    if result:
-                        for chunk in result:
-                            opened[(chunk["source"], chunk["chunk_id"])] = chunk
+                    result = []
+                    for chunk in context:
+                        key = (chunk["source"], chunk["chunk_id"])
+                        if key in opened or len(opened) >= max_reads:
+                            continue
+                        opened[key] = chunk
+                        result.append(chunk)
                 elif call.name == "hybrid_search" and isinstance(arguments.get("query"), str):
                     query = arguments["query"].strip()
                     try:

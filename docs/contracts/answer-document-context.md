@@ -82,7 +82,8 @@ Questions: none
 ```
 
 The existing read budget bounds model input and latency. Search result ranking
-and the released search profile do not change.
+and the released search profile do not change. One context read uses one
+bounded database query.
 
 ## Acceptance criteria
 
@@ -90,6 +91,7 @@ and the released search profile do not change.
   the existing read limit is reached.
 - The selected chunk is always kept first.
 - Expanded chunks can be cited by exact chunk ID.
+- Repeated reads do not resend chunks that are already open.
 - An inaccessible child or root produces no selected or sibling evidence.
 - Existing answer, search, and web checks pass without the `full_acl` gate.
 
