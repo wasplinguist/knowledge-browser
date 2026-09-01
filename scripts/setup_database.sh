@@ -15,14 +15,17 @@ load_environment() {
   for line in "${saved_exports[@]}"; do eval "export${line#declare -x}"; done
 }
 
+explicit_database_url=0
+[ -z "${DATABASE_URL:-}" ] || explicit_database_url=1
 load_environment
+[ -z "${DATABASE_URL:-}" ] || explicit_database_url=1
 python_bin="${PYTHON_BIN:-$project_root/api/.venv/bin/python}"
 table_count_sql="SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('users', 'groups', 'group_memberships', 'permission_sets', 'permission_set_users', 'permission_set_groups', 'documents', 'chunks', 'sentences', 'search_events', 'search_clicks')"
 
 database_url="$("$python_bin" -c 'from knowledge_browser.config import database_url; print(database_url())')"
 export DATABASE_URL="$database_url"
 
-docker compose up -d db
+if [ "$explicit_database_url" -eq 0 ]; then docker compose up -d db; fi
 ready=0
 for _ in $(seq 1 30); do
   if "$python_bin" -c '

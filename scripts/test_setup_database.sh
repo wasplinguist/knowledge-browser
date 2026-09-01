@@ -52,10 +52,18 @@ chmod +x "$tmp/docker" "$tmp/python"
 
 assert_order() {
   local expected actual
-  expected=$'compose up -d db\nready DATABASE_URL=from-process\ntable-count DATABASE_URL=from-process\nschema DATABASE_URL=from-process\npython DATABASE_URL=from-process -m knowledge_browser.bootstrap --data '
-  actual="$(sed -n '1,5p' "$log" | sed "5s|$root/data/company|data/company|")"
+  expected=$'ready DATABASE_URL=from-process\ntable-count DATABASE_URL=from-process\nschema DATABASE_URL=from-process\npython DATABASE_URL=from-process -m knowledge_browser.bootstrap --data '
+  actual="$(sed -n '1,4p' "$log" | sed "4s|$root/data/company|data/company|")"
   expected+="data/company"
-  [ "$actual" = "$expected" ] || { printf 'unexpected setup order:\n%s\n' "$actual" >&2; return 1; }
+  [ "$actual" = "$expected" ] || { printf 'unexpected explicit-url setup order:\n%s\n' "$actual" >&2; return 1; }
+  ! grep -q '^compose up -d db$' "$log"
+}
+
+assert_default_order() {
+  local expected actual
+  expected=$'compose up -d db\nready DATABASE_URL=postgresql://postgres:postgres@localhost:5432/knowledge_search\ntable-count DATABASE_URL=postgresql://postgres:postgres@localhost:5432/knowledge_search\nschema DATABASE_URL=postgresql://postgres:postgres@localhost:5432/knowledge_search'
+  actual="$(sed -n '1,4p' "$log")"
+  [ "$actual" = "$expected" ] || { printf 'unexpected default-url setup order:\n%s\n' "$actual" >&2; return 1; }
 }
 
 printf 'DATABASE_URL=from-dotenv\n' >"$env_file"
@@ -64,6 +72,12 @@ FAKE_LOG="$log" DATABASE_URL=from-process PATH="$tmp:$PATH" PYTHON_BIN="$tmp/pyt
 assert_order
 grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.bootstrap --data $root/data/company" "$log" >/dev/null
 grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.db_compat" "$log" >/dev/null
+
+: >"$log"
+rm "$env_file"
+FAKE_LOG="$log" PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" SETUP_DATABASE_READY_SLEEP=0 \
+  bash "$root/scripts/setup_database.sh"
+assert_default_order
 
 : >"$log"
 FAKE_LOG="$log" FAKE_TABLES=11 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
