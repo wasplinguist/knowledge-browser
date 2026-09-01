@@ -23,7 +23,10 @@ def create_embeddings(client, texts, model, *, batch_size=100):
     for start in range(0, len(unique), batch_size):
         batch = unique[start:start + batch_size]
         response = client.embeddings.create(model=model, input=batch)
-        by_index = {item.index: item.embedding for item in response.data}
+        items = response.data
+        if len(items) != len(batch) or len({item.index for item in items}) != len(items):
+            raise ValueError("embedding provider returned invalid indexes")
+        by_index = {item.index: item.embedding for item in items}
         if set(by_index) != set(range(len(batch))):
             raise ValueError("embedding provider returned invalid indexes")
         if any(len(vector) != 1536 for vector in by_index.values()):

@@ -76,6 +76,21 @@ def test_rejects_invalid_provider_indexes():
         create_embeddings(SimpleNamespace(embeddings=Embeddings()), ["text"], "model")
 
 
+def test_rejects_duplicate_provider_indexes():
+    class Embeddings:
+        def create(self, **_request):
+            return SimpleNamespace(data=[
+                SimpleNamespace(index=0, embedding=[0.0] * 1536),
+                SimpleNamespace(index=1, embedding=[1.0] * 1536),
+                SimpleNamespace(index=1, embedding=[2.0] * 1536),
+            ])
+
+    with pytest.raises(ValueError, match="embedding provider returned invalid indexes"):
+        create_embeddings(
+            SimpleNamespace(embeddings=Embeddings()), ["first", "second"], "model"
+        )
+
+
 def test_rejects_invalid_provider_vector_size():
     class Embeddings:
         def create(self, **_request):
