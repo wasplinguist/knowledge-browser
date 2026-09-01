@@ -2,7 +2,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from knowledge_browser.embedding_index import collect_sentences, create_embeddings, sentences
+from knowledge_browser.embedding_index import (
+    collect_sentences,
+    create_embeddings,
+    encoded_vector,
+    sentence_key,
+    sentences,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -30,6 +36,27 @@ def test_collect_sentences_deduplicates_and_excludes_issue_metadata():
         "Shared sentence!",
         "Last sentence?",
     ]
+
+
+def test_sentence_key_is_the_utf8_sha256_digest():
+    assert sentence_key("same sentence") == (
+        "935b715416c60db94100471aa0d6ccb30a9dc3b93dcab24e23e775616149ec24"
+    )
+
+
+def test_encoded_vector_requires_and_preserves_1536_values():
+    vector = [0.0, 1.25, -2.0, *([3.0] * 1533)]
+
+    encoded = encoded_vector(vector)
+
+    assert encoded.startswith("[0.0,1.25,-2.0,3.0,")
+    assert encoded.endswith(",3.0]")
+    assert encoded.count(",") == 1535
+
+
+def test_encoded_vector_rejects_invalid_dimensions():
+    with pytest.raises(ValueError, match="embedding provider returned invalid dimensions"):
+        encoded_vector([0.0] * 1535)
 
 
 def test_batches_dedupes_and_uses_provider_indexes():
