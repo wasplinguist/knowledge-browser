@@ -26,7 +26,9 @@ the same retrieval behavior as when they use its canonical project name.
 - Reuse the existing whole-term, short-uppercase, and Jira issue-key protection
   in `expand_query`.
 - Evaluate the released and challenger profiles against the same 603 questions,
-  users, database snapshot, and embeddings.
+  users, database snapshot, embedding model, and embedding configuration. Each
+  profile embeds its effective query text, matching the production API: raw for
+  released and whole-term-expanded for the challenger.
 - Run the deterministic fast ACL sample and normal pull-request regression
   checks.
 
@@ -125,9 +127,23 @@ Questions: none; data/company/projects.jsonl is the repository-owned authoritati
 - Non-nightly API unit and integration suites.
 - Web tests and production build.
 - Fresh 603-question released-versus-challenger retrieval comparison using one
-  database snapshot and identical embeddings, summarized by question family.
+  database snapshot and the same embedding model and configuration, with each
+  profile embedding its effective query text, summarized by question family.
 - Deterministic fast ACL sample against the challenger.
 - Full ACL is explicitly deferred to a later human-reviewed release gate.
+
+### Verification results
+
+- On 2026-09-01, the 603-question comparison improved overall nDCG@10 from
+  `0.59859` to `0.61217` and Recall@10 from `0.71012` to `0.73333`, with 22
+  wins, 2 losses, 579 ties, and zero forbidden leaks.
+- The 25-question alias slice improved nDCG@10 from `0.12967` to `0.45723`
+  and Recall@10 from `0.36` to `0.92`. Every other question family was
+  unchanged.
+- Released took 35,121 ms and the challenger took 35,606 ms on the same
+  read-only snapshot, a 485 ms (1.4%) increase within the allowed threshold.
+- Fast ACL checked 224 pairs with zero root or child leaks.
+- Full ACL was not run and the challenger was not promoted.
 
 ## Source reference
 
