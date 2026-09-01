@@ -427,8 +427,8 @@ git commit -m "feat: initialize database before server startup"
 - [ ] **Step 1: Allowed API checks**
 
 \`\`\`bash
-TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/knowledge_browser_bootstrap_test api/.venv/bin/python -m pytest -q -m "unit or integration" api/tests
-TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/knowledge_browser_bootstrap_test api/.venv/bin/python -m pytest -q -m "(search_eval or rag_eval) and not nightly" api/tests
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/knowledge_browser_bootstrap_test api/.venv/bin/python -m pytest -q -m "(unit or integration) and not full_acl and not full_retrieval and not nightly" api/tests
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/knowledge_browser_bootstrap_test api/.venv/bin/python -m pytest -q -m "(search_eval or rag_eval) and not full_acl and not full_retrieval and not nightly" api/tests
 \`\`\`
 
 - [ ] **Step 2: Web/repository checks**
@@ -447,7 +447,7 @@ test ! -e data/.cache
 - [ ] **Step 3: Disposable first-run smoke**
 
 \`\`\`bash
-COMPOSE_PROJECT_NAME=knowledge_browser_bootstrap_smoke POSTGRES_DB=knowledge_browser_bootstrap_smoke_test POSTGRES_PORT=5549 DATABASE_URL=postgresql://postgres:postgres@localhost:5549/knowledge_browser_bootstrap_smoke_test ./scripts/setup_database.sh
+COMPOSE_PROJECT_NAME=knowledge_browser_bootstrap_smoke POSTGRES_DB=knowledge_browser_bootstrap_smoke_test POSTGRES_PORT=5549 ./scripts/setup_database.sh
 \`\`\`
 
 Expected: 1,000 documents, 13,145 chunks, 16,520 embedded sentences. This is the only API-credit check. Clean only this named Compose project/volume.
