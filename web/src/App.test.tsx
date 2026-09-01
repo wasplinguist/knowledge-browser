@@ -99,6 +99,20 @@ it('renders safe Markdown and keeps inline citations interactive', async () => {
         '',
         'Check `AQ-404` in the [Runbook](https://example.test/runbook) [1].',
         '',
+        'Missing citation [2].',
+        '',
+        '~~~text',
+        '[1]',
+        '~~~',
+        '',
+        '    [1]',
+        '',
+        '[Reference nine][9]',
+        '',
+        '[9]: https://example.test/reference',
+        '',
+        'Do not load ![tracking image](https://tracker.example.test/pixel.gif).',
+        '',
         '<div data-testid="unsafe-html">Unsafe</div>',
       ].join('\n'),
       evidence_status: 'complete',
@@ -126,6 +140,14 @@ it('renders safe Markdown and keeps inline citations interactive', async () => {
   expect(within(answerPanel).getByRole('link', { name: 'Runbook' })).toHaveAttribute(
     'href', 'https://example.test/runbook',
   )
+  expect(within(answerPanel).getByText('Missing citation [2].')).toBeVisible()
+  expect(Array.from(answerPanel.querySelectorAll('code')).filter((code) => code.textContent?.trim() === '[1]'))
+    .toHaveLength(2)
+  expect(within(answerPanel).getByRole('link', { name: 'Reference nine' })).toHaveAttribute(
+    'href', 'https://example.test/reference',
+  )
+  expect(within(answerPanel).queryByRole('img')).not.toBeInTheDocument()
+  expect(within(answerPanel).getByText('tracking image')).toBeVisible()
   expect(within(answerPanel).queryByTestId('unsafe-html')).not.toBeInTheDocument()
 
   await userEvent.click(within(answerPanel).getByRole('button', {

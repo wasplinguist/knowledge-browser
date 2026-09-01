@@ -53,10 +53,44 @@ function citationKey(citation: Citation) {
     : citation.url || citation.chunk_id
 }
 
-function citationMarkdown(text: string) {
-  return text.split(/(```[\s\S]*?```|`[^`\n]+`)/g).map((part, index) =>
-    index % 2 ? part : part.replace(/\[(\d+)\](?!\s*\()/g, '[$1](#citation-$1)'),
-  ).join('')
+type MarkdownNode = {
+  type: string
+  value?: string
+  url?: string
+  children?: MarkdownNode[]
+}
+
+function citationLinks() {
+  return (tree: MarkdownNode) => {
+    function visit(parent: MarkdownNode) {
+      if (!parent.children) return
+      const children: MarkdownNode[] = []
+      for (const child of parent.children) {
+        if (child.type !== 'text' || !child.value || parent.type === 'link' || parent.type === 'linkReference') {
+          visit(child)
+          children.push(child)
+          continue
+        }
+        let cursor = 0
+        for (const match of child.value.matchAll(/\[(\d+)\]/g)) {
+          if (match.index > cursor) {
+            children.push({ type: 'text', value: child.value.slice(cursor, match.index) })
+          }
+          children.push({
+            type: 'link',
+            url: `#citation-${match[1]}`,
+            children: [{ type: 'text', value: match[0] }],
+          })
+          cursor = match.index + match[0].length
+        }
+        if (cursor < child.value.length) {
+          children.push({ type: 'text', value: child.value.slice(cursor) })
+        }
+      }
+      parent.children = children
+    }
+    visit(tree)
+  }
 }
 
 export default function App() {
@@ -234,16 +268,18 @@ export default function App() {
               {answerResult?.answer && <div className="answer-copy">
                 <ReactMarkdown
                   skipHtml
+                  remarkPlugins={[citationLinks]}
                   components={{
                     a: ({ href, children }) => {
                       const citation = href?.match(/^#citation-(\d+)$/)
                       if (citation) {
-                        return inlineCitation(Number(citation[1]), answerResult.citations)
+                        return inlineCitation(Number(citation[1]), answerResult.citations) ?? <>{children}</>
                       }
                       return <a href={href} target="_blank" rel="noreferrer">{children}</a>
                     },
+                    img: ({ alt }) => <span className="markdown-image-alt">{alt || 'Image'}</span>,
                   }}
-                >{citationMarkdown(answerResult.answer)}</ReactMarkdown>
+                >{answerResult.answer}</ReactMarkdown>
               </div>}
               {!answerResult && !answerError && <p className="muted">Generating a grounded answer…</p>}
               {answerError && <p className="answer-error">{answerError}</p>}
