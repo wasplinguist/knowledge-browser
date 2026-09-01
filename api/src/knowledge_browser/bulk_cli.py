@@ -12,7 +12,7 @@ import psycopg
 
 from .bulk_import import prepare_bulk_load, run_import
 from .bulk_state import assert_redwood_database, reset_redwood_database
-from .bulk_verify import verify_redwood
+from .bulk_verify import MAX_P95_MS, verify_redwood
 from .config import database_url
 from .dataset import validate_streaming_dataset
 from .profiles import load_profile
@@ -220,7 +220,7 @@ def main(argv=None):
                 print(json.dumps(report.safe_dict(), sort_keys=True))
             else:
                 _print_verification(report)
-            if not report.compatible:
+            if not report.compatible or report.p95_ms > MAX_P95_MS:
                 return 1
     except Exception:
         sys.stderr.write(ERRORS[args.command])

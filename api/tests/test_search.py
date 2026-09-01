@@ -456,6 +456,67 @@ def test_semantic_search_filters_acl_and_ranks_each_chunk_once(db):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "expected_indexes"),
+    (
+        (
+            None,
+            {
+                "confluence_sentences_embedding_idx",
+                "github_sentences_embedding_idx",
+                "jira_sentences_embedding_idx",
+                "slack_sentences_embedding_idx",
+            },
+        ),
+        ("slack", {"slack_sentences_embedding_idx"}),
+    ),
+)
+def test_semantic_search_plan_uses_partition_hnsw_before_bounded_deduplication(
+    db, source, expected_indexes
+):
+    class _Rows:
+        def fetchall(self):
+            return []
+
+    class _CaptureConnection:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, statement, parameters=None):
+            self.calls.append((statement, parameters))
+            return _Rows()
+
+    captured = _CaptureConnection()
+    user = UUID("00000000-0000-0000-0000-000000000003")
+    vector = [1.0, *([0.0] * 1535)]
+    semantic_search(captured, user, vector, source=source)
+    statement, parameters = captured.calls[-1]
+
+    db.execute("SET LOCAL enable_seqscan = off")
+    plan = db.execute(
+        "EXPLAIN (FORMAT JSON, COSTS OFF) " + statement,
+        parameters,
+    ).fetchone()[0][0]["Plan"]
+
+    def nodes(node):
+        yield node
+        for child in node.get("Plans", []):
+            yield from nodes(child)
+
+    sentence_nodes = [
+        node
+        for node in nodes(plan)
+        if node.get("Relation Name", "").endswith("_sentences")
+    ]
+    assert {
+        node["Index Name"]
+        for node in sentence_nodes
+        if node["Node Type"] == "Index Scan"
+    } == expected_indexes
+    assert not any(node["Node Type"] == "Seq Scan" for node in sentence_nodes)
+
+
+@pytest.mark.integration
 def test_semantic_search_enforces_child_and_root_acl_in_both_directions(db):
     company_user = UUID("00000000-0000-0000-0000-000000000001")
     vector = [1.0, *([0.0] * 1535)]

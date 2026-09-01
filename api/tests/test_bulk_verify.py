@@ -7,6 +7,7 @@ from uuid import uuid4
 import psycopg
 import pytest
 
+import knowledge_browser.bulk_verify as bulk_verify_module
 from conftest import _prepare_test_database, _seed
 from knowledge_browser.bulk_import import (
     finalize_indexes,
@@ -331,7 +332,91 @@ def test_verify_blocks_unknown_user_and_scores_unchanged_qa(
     assert report.mrr == 1.0
     assert report.p50_ms >= 0
     assert report.p95_ms >= report.p50_ms
-    assert client.inputs == ["Company", "Group"]
+    assert client.inputs == [
+        "Company",
+        "Group",
+        "Company body",
+        "Group body",
+        "Direct body",
+    ]
+
+
+def test_verify_acl_probes_use_released_hybrid_search(
+    tmp_path, clean_database_url, monkeypatch
+):
+    data_dir = _verification_data(tmp_path)
+    real_search = bulk_verify_module.hybrid_search
+    calls = []
+
+    def recording_search(conn, user_id, query, embedding, **kwargs):
+        results = real_search(conn, user_id, query, embedding, **kwargs)
+        calls.append(
+            (
+                query,
+                user_id,
+                {item["external_id"] for item in results},
+                kwargs["profile"].name,
+            )
+        )
+        return results
+
+    monkeypatch.setattr(bulk_verify_module, "hybrid_search", recording_search)
+
+    report = verify_redwood(
+        _verification_database(clean_database_url, data_dir),
+        data_dir,
+        FakeEmbeddingClient(),
+        load_profile(RELEASED),
+    )
+
+    protected = {
+        "Company body": "COMPANY-1",
+        "Group body": "GROUP-1",
+        "Direct body": "DIRECT-1",
+    }
+    for query, expected_id in protected.items():
+        probes = [call for call in calls if call[0] == query]
+        assert probes
+        assert all(call[3] == "released" for call in probes)
+        assert any(expected_id in call[2] for call in probes)
+        assert any(expected_id not in call[2] for call in probes)
+
+    assert report.acl_checks == {
+        "company_visible": True,
+        "group_visible": True,
+        "group_unauthorized_results": 0,
+        "direct_user_visible": True,
+        "direct_unauthorized_results": 0,
+        "unknown_user_results": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("elapsed_seconds", "expected_compatible"),
+    ((2.0, True), (2.000001, False)),
+)
+def test_verify_enforces_two_second_p95_boundary(
+    tmp_path,
+    clean_database_url,
+    monkeypatch,
+    elapsed_seconds,
+    expected_compatible,
+):
+    data_dir = _verification_data(tmp_path)
+    clock = iter((0.0, elapsed_seconds, 3.0, 3.0 + elapsed_seconds))
+    monkeypatch.setattr(
+        bulk_verify_module.time, "perf_counter", lambda: next(clock)
+    )
+
+    report = verify_redwood(
+        _verification_database(clean_database_url, data_dir),
+        data_dir,
+        FakeEmbeddingClient(),
+        load_profile(RELEASED),
+    )
+
+    assert report.p95_ms == pytest.approx(elapsed_seconds * 1000)
+    assert report.compatible is expected_compatible
 
 
 def test_verify_detects_exact_source_count_mismatch(tmp_path, clean_database_url):

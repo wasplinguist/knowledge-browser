@@ -15,8 +15,10 @@ from .dataset import SOURCES
 from .db_compat import check_compatibility
 from .embedding_index import create_embeddings
 from .profiles import SearchProfile
-from .repository import get_document
 from .search import hybrid_search
+
+
+MAX_P95_MS = 2_000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,16 +134,18 @@ def _representative(conn, kind: str):
         return conn.execute(
             """
             SELECT documents.source, documents.external_id, users.id,
-                   documents.permission_set_id
+                   documents.permission_set_id, chunks.text
             FROM documents
             JOIN permission_sets
               ON permission_sets.id = documents.permission_set_id
+            JOIN chunks ON chunks.document_id = documents.id
             CROSS JOIN LATERAL (
               SELECT id FROM users ORDER BY id LIMIT 1
             ) users
             WHERE documents.root_document_id = documents.id
               AND permission_sets.visibility = 'company'
-            ORDER BY documents.source, documents.external_id
+            ORDER BY documents.source, documents.external_id,
+                     chunks.chunk_index, chunks.id
             LIMIT 1
             """
         ).fetchone()
@@ -149,26 +153,30 @@ def _representative(conn, kind: str):
         return conn.execute(
             """
             SELECT documents.source, documents.external_id, memberships.user_id,
-                   documents.permission_set_id
+                   documents.permission_set_id, chunks.text
             FROM documents
+            JOIN chunks ON chunks.document_id = documents.id
             JOIN permission_set_groups access
               ON access.permission_set_id = documents.permission_set_id
             JOIN group_memberships memberships
               ON memberships.group_id = access.group_id
             WHERE documents.root_document_id = documents.id
-            ORDER BY documents.source, documents.external_id, memberships.user_id
+            ORDER BY documents.source, documents.external_id, memberships.user_id,
+                     chunks.chunk_index, chunks.id
             LIMIT 1
             """
         ).fetchone()
     return conn.execute(
         """
         SELECT documents.source, documents.external_id, access.user_id,
-               documents.permission_set_id
+               documents.permission_set_id, chunks.text
         FROM documents
+        JOIN chunks ON chunks.document_id = documents.id
         JOIN permission_set_users access
           ON access.permission_set_id = documents.permission_set_id
         WHERE documents.root_document_id = documents.id
-        ORDER BY documents.source, documents.external_id, access.user_id
+        ORDER BY documents.source, documents.external_id, access.user_id,
+                 chunks.chunk_index, chunks.id
         LIMIT 1
         """
     ).fetchone()
@@ -200,13 +208,32 @@ def _unauthorized_user(conn, permission_set_id):
     return row[0] if row else None
 
 
-def _acl_checks(conn, query: str, embedding, profile: SearchProfile):
-    company = _representative(conn, "company")
-    group = _representative(conn, "group")
-    direct = _representative(conn, "direct")
+def _acl_checks(conn, representatives, embeddings, profile: SearchProfile):
+    company = representatives["company"]
+    group = representatives["group"]
+    direct = representatives["direct"]
+
+    def search(row, user_id):
+        if not row:
+            return []
+        return hybrid_search(
+            conn,
+            user_id,
+            row[4],
+            embeddings[row[4]],
+            profile=profile,
+        )
+
+    def protected_results(row, user_id):
+        if not row:
+            return 1
+        return sum(
+            item["source"] == row[0] and item["external_id"] == row[1]
+            for item in search(row, user_id)
+        )
 
     def visible(row):
-        return bool(row and get_document(conn, row[2], row[0], row[1]))
+        return bool(row and protected_results(row, row[2]))
 
     def unauthorized_results(row):
         if not row:
@@ -214,7 +241,9 @@ def _acl_checks(conn, query: str, embedding, profile: SearchProfile):
         user = _unauthorized_user(conn, row[3])
         if user is None:
             return 1
-        return int(get_document(conn, user, row[0], row[1]) is not None)
+        return protected_results(row, user)
+
+    unknown_user = uuid4()
 
     return {
         "company_visible": visible(company),
@@ -222,8 +251,10 @@ def _acl_checks(conn, query: str, embedding, profile: SearchProfile):
         "group_unauthorized_results": unauthorized_results(group),
         "direct_user_visible": visible(direct),
         "direct_unauthorized_results": unauthorized_results(direct),
-        "unknown_user_results": len(
-            hybrid_search(conn, uuid4(), query, embedding, profile=profile)
+        "unknown_user_results": sum(
+            len(search(row, unknown_user))
+            for row in (company, group, direct)
+            if row
         ),
     }
 
@@ -274,9 +305,18 @@ def verify_redwood(
         accessible = [(user, question) for user, question in users if user]
         if not accessible:
             raise ValueError("qa.jsonl has no accessible questions")
+        representatives = {
+            kind: _representative(conn, kind)
+            for kind in ("company", "group", "direct")
+        }
+        embedding_texts = [
+            question["question"] for _, question in accessible
+        ] + [
+            row[4] for row in representatives.values() if row
+        ]
         embeddings = create_embeddings(
             embedding_client,
-            [question["question"] for _, question in accessible],
+            embedding_texts,
             profile.embedding_model,
         )
 
@@ -305,8 +345,8 @@ def verify_redwood(
 
         acl_checks = _acl_checks(
             conn,
-            accessible[0][1]["question"],
-            embeddings[accessible[0][1]["question"]],
+            representatives,
+            embeddings,
             profile,
         )
 
@@ -344,6 +384,12 @@ def verify_redwood(
         and acl_checks["direct_unauthorized_results"] == 0
         and acl_checks["unknown_user_results"] == 0
     )
+    p50_ms = statistics.median(latencies)
+    p95_ms = (
+        latencies[0]
+        if len(latencies) == 1
+        else statistics.quantiles(latencies, n=100, method="inclusive")[94]
+    )
     compatible = bool(
         compatibility.compatible
         and run_matches
@@ -356,12 +402,7 @@ def verify_redwood(
         and missing_embeddings == 0
         and counts["wrong_embedding_model"] == 0
         and acl_safe
-    )
-    p50_ms = statistics.median(latencies)
-    p95_ms = (
-        latencies[0]
-        if len(latencies) == 1
-        else statistics.quantiles(latencies, n=100, method="inclusive")[94]
+        and p95_ms <= MAX_P95_MS
     )
     return VerificationReport(
         compatible=compatible,

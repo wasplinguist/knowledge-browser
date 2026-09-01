@@ -109,12 +109,14 @@ vector indexes are built after all batches load. Status stays `indexing` until
 both indexes are valid, the tables are analyzed, and the run is complete.
 
 `verify` reads `qa.jsonl` without changing it and uses the released hybrid
-search profile. It checks exact document and source counts, embeddings,
-company/group/direct-user access, an unknown user, Recall@10, MRR, and local
-search p50/p95 latency. It needs the OpenAI API key for question embeddings.
+search profile. Its ACL probes also use that real search path for company,
+group, direct-user, unauthorized, and unknown-user checks. It checks exact
+document and source counts, embeddings, Recall@10, MRR, and local search
+p50/p95 latency. Semantic retrieval uses the finalized partition HNSW indexes
+before bounded result deduplication. Verification fails when p95 is over the
+two-second local target. It needs the OpenAI API key for query embeddings.
 `--json` prints the same safe aggregate report to standard output; no report
-file is created in the repository. Review p95 against the two-second local
-target before using the full database.
+file is created in the repository.
 
 If a manually created container already uses the name
 `knowledge-redwood-db`, `start` stops safely. Remove that exact container only

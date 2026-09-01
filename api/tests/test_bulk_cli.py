@@ -283,7 +283,7 @@ def test_reset_defers_large_indexes_after_schema_reset(monkeypatch, tmp_path):
     assert calls == ["reset", "defer_indexes"]
 
 
-def _verification_report(*, compatible=True):
+def _verification_report(*, compatible=True, p95_ms=20.0):
     return VerificationReport(
         compatible=compatible,
         counts={"documents": 8, "chunks": 12, "sentences": 20},
@@ -293,7 +293,7 @@ def _verification_report(*, compatible=True):
         recall_at_10=0.75,
         mrr=0.5,
         p50_ms=10.0,
-        p95_ms=20.0,
+        p95_ms=p95_ms,
     )
 
 
@@ -335,6 +335,20 @@ def test_verify_returns_failure_after_printing_incompatible_report(
 
     assert bulk_cli.main(["verify", "--data", "/safe/data", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["compatible"] is False
+
+
+def test_verify_returns_failure_when_p95_exceeds_two_seconds(monkeypatch, capsys):
+    _safe_cli(monkeypatch)
+    monkeypatch.setattr(bulk_cli, "assert_redwood_database", lambda _url: None)
+    monkeypatch.setattr(
+        bulk_cli,
+        "verify_redwood",
+        lambda *_args: _verification_report(compatible=True, p95_ms=2000.01),
+    )
+    monkeypatch.setattr(bulk_cli, "_openai_client", lambda: object())
+
+    assert bulk_cli.main(["verify", "--data", "/safe/data", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["p95_ms"] == 2000.01
 
 
 def _executable(path: Path, text: str) -> Path:
