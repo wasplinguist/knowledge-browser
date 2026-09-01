@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -26,7 +27,9 @@ def _catalog_expansions() -> dict[str, str]:
             *(alias for values in project["aliases_by_source"].values() for alias in values),
         }
         for alias in aliases:
-            if alias.casefold() == canonical.casefold():
+            if re.search(
+                rf"(?<!\w){re.escape(alias)}(?!\w)", canonical, re.IGNORECASE
+            ):
                 continue
             folded = alias.casefold()
             candidates.setdefault(folded, set()).add(canonical)
@@ -45,6 +48,14 @@ def test_candidate_contains_every_unambiguous_catalog_alias():
 
     assert profile.name == "project-aliases-v1"
     assert profile.query_expansions == _catalog_expansions()
+
+
+def test_candidate_does_not_reexpand_canonical_project_names():
+    profile = load_profile(CANDIDATE)
+
+    for line in CATALOG.read_text(encoding="utf-8").splitlines():
+        canonical = json.loads(line)["name"]
+        assert expand_query(canonical, profile) == canonical
 
 
 @pytest.mark.parametrize(

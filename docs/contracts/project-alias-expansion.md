@@ -57,6 +57,9 @@ the same retrieval behavior as when they use its canonical project name.
 - A Jira issue key such as `NIMREL-401` remains unchanged; a standalone
   `NIMREL` may expand to `Nimbus Relay`.
 - Aliases that resolve to more than one canonical project must not be included.
+- An alias already present as a whole term inside its canonical project name is
+  excluded, because expanding it would duplicate part of an already canonical
+  query. Source slugs, Program names, Jira keys, and repository paths remain.
 - The released profile remains the default API profile.
 
 ## Safety invariants
