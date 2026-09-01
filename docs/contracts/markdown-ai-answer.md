@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved by the user on 2026-09-01.
+Implemented on 2026-09-01 after user approval.
 
 ## User outcome
 

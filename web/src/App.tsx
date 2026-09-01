@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 
 import { answer, getDemoUsers, recordClick, search } from './api'
 import DocumentPanel from './DocumentPanel'
@@ -50,6 +51,12 @@ function citationKey(citation: Citation) {
   return citation.source && citation.external_id
     ? `${citation.source}:${citation.external_id}`
     : citation.url || citation.chunk_id
+}
+
+function citationMarkdown(text: string) {
+  return text.split(/(```[\s\S]*?```|`[^`\n]+`)/g).map((part, index) =>
+    index % 2 ? part : part.replace(/\[(\d+)\](?!\s*\()/g, '[$1](#citation-$1)'),
+  ).join('')
 }
 
 export default function App() {
@@ -150,28 +157,24 @@ export default function App() {
     selectedResult.current?.focus()
   }, [])
   const currentUser = users.find((user) => user.id === userId)
-  const answerText = (text: string, citations: Citation[]) => {
+  const inlineCitation = (number: number, citations: Citation[]) => {
     const documents = uniqueCitations(citations)
-    return text.split(/(\[\d+\])/).map((part, index) => {
-      const match = part.match(/^\[(\d+)\]$/)
-      const citation = match ? citations[Number(match[1]) - 1] : undefined
-      if (!citation?.source || !citation.external_id) return part
-      const documentIndex = documents.findIndex(
-        (document) => citationKey(document) === citationKey(citation),
-      )
-      const number = documentIndex < 0 ? Number(match![1]) : documentIndex + 1
-      return <button
-        type="button"
-        className="inline-citation"
-        aria-label={`Citation ${number}: ${citation.title || citation.external_id}`}
-        key={`${citationKey(citation)}-${index}`}
-        onClick={(event) => openDocument({
-          source: citation.source!,
-          external_id: citation.external_id!,
-          title: citation.title || citation.external_id!,
-        }, event.currentTarget)}
-      >[{number}]</button>
-    })
+    const citation = citations[number - 1]
+    if (!citation?.source || !citation.external_id) return null
+    const documentIndex = documents.findIndex(
+      (document) => citationKey(document) === citationKey(citation),
+    )
+    const label = documentIndex < 0 ? number : documentIndex + 1
+    return <button
+      type="button"
+      className="inline-citation"
+      aria-label={`Citation ${label}: ${citation.title || citation.external_id}`}
+      onClick={(event) => openDocument({
+        source: citation.source!,
+        external_id: citation.external_id!,
+        title: citation.title || citation.external_id!,
+      }, event.currentTarget)}
+    >[{label}]</button>
   }
 
   return <div className="shell">
@@ -229,8 +232,18 @@ export default function App() {
                 </span>}
               </div>
               {answerResult?.answer && <div className="answer-copy">
-                {answerResult.answer.split(/\n\s*\n/).map((paragraph, index) =>
-                  <p key={index}>{answerText(paragraph, answerResult.citations)}</p>)}
+                <ReactMarkdown
+                  skipHtml
+                  components={{
+                    a: ({ href, children }) => {
+                      const citation = href?.match(/^#citation-(\d+)$/)
+                      if (citation) {
+                        return inlineCitation(Number(citation[1]), answerResult.citations)
+                      }
+                      return <a href={href} target="_blank" rel="noreferrer">{children}</a>
+                    },
+                  }}
+                >{citationMarkdown(answerResult.answer)}</ReactMarkdown>
               </div>}
               {!answerResult && !answerError && <p className="muted">Generating a grounded answer…</p>}
               {answerError && <p className="answer-error">{answerError}</p>}
