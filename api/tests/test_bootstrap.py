@@ -88,6 +88,23 @@ def test_incompatible_populated_database_is_refused(connection_factory):
         )
 
 
+def test_empty_incompatible_database_skips_provider(connection_factory):
+    with connection_factory() as conn:
+        conn.execute("DROP INDEX sentences_embedding_idx")
+
+    called = False
+
+    def client_factory():
+        nonlocal called
+        called = True
+        raise AssertionError("provider must not run")
+
+    with pytest.raises(bootstrap.BootstrapError, match="empty database is incompatible"):
+        bootstrap.bootstrap_database(connection_factory, DATA, client_factory)
+
+    assert called is False
+
+
 def test_empty_database_imports_with_fake_embeddings(connection_factory):
     client = FakeEmbeddingClient()
 
@@ -137,11 +154,13 @@ def test_post_import_compatibility_failure_rolls_back_outer_transaction(
         return SimpleNamespace(users=1, documents=0, chunks=0, sentences=0)
 
     monkeypatch.setattr(bootstrap, "import_dataset", import_one_user)
-    monkeypatch.setattr(
-        bootstrap,
-        "check_compatibility",
-        lambda _conn: SimpleNamespace(compatible=False),
+    checks = iter(
+        (
+            SimpleNamespace(issues=tuple(bootstrap.EMPTY_DATA_ISSUES)),
+            SimpleNamespace(compatible=False),
+        )
     )
+    monkeypatch.setattr(bootstrap, "check_compatibility", lambda _conn: next(checks))
 
     with pytest.raises(bootstrap.BootstrapError, match="imported database failed compatibility check"):
         bootstrap.bootstrap_database(connection_factory, DATA, FakeEmbeddingClient)
@@ -163,6 +182,19 @@ def test_cli_skips_populated_database_without_an_api_key(
     output = capsys.readouterr()
     assert output.out == "database already initialized\n"
     assert output.err == ""
+
+
+def test_cli_empty_database_without_api_key_has_safe_setup_message(
+    connection_factory, monkeypatch, capsys
+):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(bootstrap, "connection", connection_factory)
+
+    assert bootstrap.main(["--data", str(DATA)]) == 1
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "bootstrap failed: OPENAI_API_KEY is required for first-time setup\n"
 
 
 def test_cli_never_prints_exception_details(monkeypatch, capsys):

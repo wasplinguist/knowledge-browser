@@ -10,7 +10,7 @@ import sys
 
 from .dataset import load_dataset
 from .db import connection
-from .db_compat import check_compatibility
+from .db_compat import SOURCES, check_compatibility
 from .embedding_index import collect_sentences, create_embeddings
 from .importer import ImportReport, import_dataset
 from .profiles import load_profile
@@ -30,6 +30,16 @@ PARTIAL_COUNT_SQL = """
       + (SELECT count(*) FROM chunks)
       + (SELECT count(*) FROM sentences)
 """
+EMPTY_DATA_ISSUES = {
+    "documents are empty",
+    "chunks are empty",
+    "sentences are empty",
+    *(
+        f"missing source in {table}: {source}"
+        for table in ("documents", "chunks", "sentences")
+        for source in SOURCES
+    ),
+}
 
 
 class BootstrapError(Exception):
@@ -51,6 +61,11 @@ def bootstrap_database(connection_factory, data_dir, client_factory) -> Bootstra
             return BootstrapResult(False, None)
         if conn.execute(PARTIAL_COUNT_SQL).fetchone()[0]:
             raise BootstrapError("database is partially initialized")
+        if any(
+            issue not in EMPTY_DATA_ISSUES
+            for issue in check_compatibility(conn).issues
+        ):
+            raise BootstrapError("empty database is incompatible")
 
         dataset = load_dataset(data_dir)
         model = load_profile(PROFILE_PATH).embedding_model
