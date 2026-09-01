@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved
+Implemented
 
 ## User outcome
 
@@ -12,8 +12,8 @@ check these foundations.
 
 ## Evidence
 
-Every later feature needs a reproducible Python, Node.js, browser, database, and
-CI base. The new repository currently contains contracts only.
+The product needs a reproducible Python, Node.js, browser, database, and CI
+foundation that remains independently verifiable.
 
 ## Scope
 
@@ -33,7 +33,7 @@ CI base. The new repository currently contains contracts only.
 
 ## Dependencies
 
-Only bootstrap commit `89daa76` on `main`.
+No product-layer dependency.
 
 ## Interface and data contract
 
@@ -44,7 +44,7 @@ The web shell has no API request. Vite proxies future `/api` development calls
 to `http://127.0.0.1:8000`.
 
 Docker Compose exposes PostgreSQL on `${POSTGRES_PORT:-5432}` with database
-`${POSTGRES_DB:-knowledge_browser}` and local demo credentials. No schema is
+`${POSTGRES_DB:-knowledge_search}` and local demo credentials. No schema is
 mounted in this feature.
 
 ## Safety invariants
@@ -75,8 +75,3 @@ development machine.
 - `npm run build` from `web/`
 - `docker compose config --quiet`
 - `git diff --check`
-
-## Source reference
-
-Only dependency choices and general directory names were inspected at final
-old-repository commit `8782676`. No old product code or Git history is imported.

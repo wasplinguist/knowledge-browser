@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented from the clean product migration roadmap and the earlier UI decisions.
+Implemented.
 
 ## User outcome
 
@@ -91,15 +91,3 @@ It does not navigate to stored external URLs.
 - `docker compose config --quiet`
 - `git diff --check`
 - One final whole-feature review before the pull request.
-
-## Source reference
-
-- `knowledge-search/api/src/knowledge_search/documents.py`
-- `knowledge-search/api/tests/test_document_api.py`
-- `knowledge-search/web/src/App.tsx`
-- `knowledge-search/web/src/DocumentPanel.tsx`
-- `knowledge-search/web/src/api.ts`
-- `knowledge-search/web/src/types.ts`
-- `knowledge-search/web/src/App.test.tsx`
-- `knowledge-search/web/src/DocumentPanel.test.tsx`
-- `knowledge-search/docs/superpowers/specs/2026-08-31-source-detail-panel-design.md`

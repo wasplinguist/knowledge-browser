@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved by the clean product migration roadmap.
+Implemented.
 
 ## User outcome
 
@@ -27,8 +27,8 @@ or permission regressions.
 ## Non-goals
 
 - Running the exhaustive native-corpus ACL scan in this feature session.
-- Importing the old generated corpus or saved evaluation reports. The user later
-  approved importing the latest full query definitions, but not saved scores.
+- Committing generated evaluation reports or saved scores. The complete 603-query
+  definitions remain versioned evaluation inputs.
 - Claiming small fixtures beat Jira, Slack, Confluence, or GitHub search.
 - Changing search, ranking, ACL SQL, schema, ingestion, or answer behavior.
 - Paid model or embedding calls in tests.
@@ -89,9 +89,9 @@ run during this implementation because the user explicitly excluded it.
 1. Real user problem: small merges wait for unrelated heavy evaluation.
 2. Affected intents: all supported search intents because evaluation protects
    their quality; no ranking behavior changes.
-3. Evidence: the earlier suite mixed about 190 ordinary and evaluation tests;
-   the native run used hundreds of queries and tens of thousands of ACL pairs,
-   taking about 50 minutes.
+3. Evidence: the suite combines ordinary and evaluation tests; a complete native
+   run uses hundreds of queries and tens of thousands of ACL pairs, taking about
+   50 minutes.
 4. Target metric: fast PR runtime, complete marker coverage, unchanged focused
    search/RAG gates, and zero ACL leaks.
 5. Regression risk: a test can be mislabeled and stop running at the correct
@@ -124,10 +124,3 @@ Questions: none
 - README commands match registered markers.
 - No production code behavior changes.
 - The exhaustive native ACL scan is not run in this feature session.
-
-## Source reference
-
-- `knowledge-search/docs/handoffs/2026-08-31-api-test-suite-split.md`
-- `knowledge-search/api/src/knowledge_search/eval_metrics.py`
-- `knowledge-search/api/src/knowledge_search/eval_entitlement.py`
-- `knowledge-search/eval/run_eval.py`

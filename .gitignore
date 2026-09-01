@@ -18,3 +18,4 @@ data/*
 !data/company/
 !data/company/**
 data/.cache/
+docs/superpowers/

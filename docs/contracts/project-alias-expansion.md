@@ -145,7 +145,6 @@ Questions: none; data/company/projects.jsonl is the repository-owned authoritati
 - Fast ACL checked 224 pairs with zero root or child leaks.
 - Full ACL was not run and the challenger was not promoted.
 
-## Source reference
+## Alias data source
 
-No old repository file, history, report, cache, or dataset is imported. The
-only alias source is `data/company/projects.jsonl` in this repository.
+The only alias source is the committed `data/company/projects.jsonl` catalog.

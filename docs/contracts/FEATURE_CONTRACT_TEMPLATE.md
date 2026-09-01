@@ -53,7 +53,8 @@ auditor verdict.
 List focused tests, integration tests, evaluation, build checks, and any manual
 review required before squash merge.
 
-## Source reference
+## Implementation inputs
 
-List old repository files used only as reference. Do not import old Git history,
-inactive datasets, old reports, or experimental artifacts.
+List the repository paths, interfaces, and external standards that constrain
+the feature. Do not commit generated reports, caches, secrets, local settings,
+or inactive datasets.

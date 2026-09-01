@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved as Feature 9 in the clean product migration roadmap.
+Implemented.
 
 ## User outcome
 
@@ -140,8 +140,8 @@ report and runs the native full ACL gate.
    behavior or accidentally “complete” with an old evaluation.
 2. Affected intents: all supported retrieval intents; this feature changes the
    experiment process, not ranking.
-3. Evidence: approved roadmap plus the missing arbitrary-candidate runner found
-   in the baseline exercise.
+3. Evidence: the baseline exercise showed that arbitrary fresh candidate
+   evaluation was missing.
 4. Target metric: every completed loop has fresh behavior, a new candidate, a
    new comparison, fast zero-leak evidence, and an explicit decision.
 5. Regression risk: weak validation could bless old results or skip ACL safety.
@@ -153,7 +153,7 @@ Intent auditor result:
 
 ```text
 Verdict: ALIGNED
-Evidence: approved roadmap and baseline proof that arbitrary fresh candidate evaluation is missing
+Evidence: baseline proof that arbitrary fresh candidate evaluation is missing
 Affected intents: all supported retrieval intents; experiment infrastructure only
 Metric: fresh-run provenance, comparison metrics, fast ACL leaks, explicit decision
 Regression risk: stale results or weak samples could be mistaken for release proof
@@ -172,9 +172,3 @@ Questions: none
 - Skill validation and forward scenario pass.
 - Unit, integration, non-nightly evaluation, web, build, and CI pass.
 - Native full ACL is not run in this feature session.
-
-## Source reference
-
-- `knowledge-search/.codex/skills/eval-driven-development/SKILL.md`
-- `knowledge-search/api/src/knowledge_search/weekly.py`
-- `knowledge-search/scripts/run_eval_loop.py`
