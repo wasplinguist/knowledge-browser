@@ -5,7 +5,7 @@ import time
 from typing import Any, Callable
 
 from .profiles import SearchProfile
-from .search import hybrid_search, read_chunk
+from .search import hybrid_search, read_chunk_context
 
 
 MODE_BUDGETS = {"fast": (3, 4), "deep": (12, 24)}
@@ -31,7 +31,7 @@ TOOLS = [
         "type": "function",
         "strict": True,
         "name": "read_chunk",
-        "description": "Open one full allowed chunk before citing it.",
+        "description": "Open an allowed chunk and related document context before citing it.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -254,15 +254,24 @@ def answer_question(
                     and len(opened) < max_reads
                 ):
                     requested_id = arguments["chunk_id"]
-                    result = read_chunk(conn, user_id, requested_source, requested_id)
-                    if not result:
+                    context = read_chunk_context(
+                        conn, user_id, requested_source, requested_id,
+                        max_reads - len(opened),
+                    )
+                    if not context:
                         resolved_id = discovered.get((requested_source, requested_id))
                         if resolved_id:
-                            result = read_chunk(
-                                conn, user_id, requested_source, resolved_id
+                            context = read_chunk_context(
+                                conn, user_id, requested_source, resolved_id,
+                                max_reads - len(opened),
                             )
-                    if result:
-                        opened[(result["source"], result["chunk_id"])] = result
+                    result = []
+                    for chunk in context:
+                        key = (chunk["source"], chunk["chunk_id"])
+                        if key in opened or len(opened) >= max_reads:
+                            continue
+                        opened[key] = chunk
+                        result.append(chunk)
                 elif call.name == "hybrid_search" and isinstance(arguments.get("query"), str):
                     query = arguments["query"].strip()
                     try:

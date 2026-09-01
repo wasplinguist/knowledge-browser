@@ -70,7 +70,7 @@ def test_answer_starts_with_shared_hybrid_results_and_cites_opened_evidence(monk
             (query, embedding, source, profile.name)
         ) or [hit],
     )
-    monkeypatch.setattr(answer_module, "read_chunk", lambda *_args: opened)
+    monkeypatch.setattr(answer_module, "read_chunk_context", lambda *_args: [opened])
     responses = Responses([
         _call("read", "read_chunk", {"source": "jira", "chunk_id": hit["chunk_id"]}),
         _final({
@@ -102,11 +102,117 @@ def test_answer_starts_with_shared_hybrid_results_and_cites_opened_evidence(monk
     assert "only when they do not contain enough evidence" in responses.requests[0]["instructions"]
 
 
+def test_answer_opens_related_document_chunks_before_writing(monkeypatch):
+    impact = {
+        **_result("artifact-059-confluence-postmortem:section_body:0"),
+        "source": "confluence",
+        "external_id": "artifact-059-confluence-postmortem",
+        "matched_external_id": "artifact-059-confluence-postmortem",
+        "text": "New connections failed TLS checks.",
+    }
+    root_cause = {
+        **impact,
+        "chunk_id": "artifact-059-confluence-postmortem:section_body:1",
+        "chunk_index": 1,
+        "text": "The trust bundle was not reloaded atomically.",
+    }
+    resolution = {
+        **impact,
+        "chunk_id": "artifact-059-confluence-postmortem:section_body:2",
+        "chunk_index": 2,
+        "text": "Released in 2026.59.1.",
+    }
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [impact])
+    monkeypatch.setattr(
+        answer_module,
+        "read_chunk_context",
+        lambda *_args: [impact, root_cause, resolution],
+    )
+    responses = Responses([
+        _call(
+            "read",
+            "read_chunk",
+            {"source": "confluence", "chunk_id": impact["chunk_id"]},
+        ),
+        _final({
+            "answer": "The trust bundle was not reloaded atomically [1].",
+            "evidence_status": "complete",
+            "citations": [root_cause["chunk_id"]],
+            "conflicts": [],
+            "missing_information": [],
+            "follow_ups": [],
+        }),
+    ])
+
+    answer = answer_module.answer_question(
+        None,
+        "user",
+        "Why did certificate rotation fail?",
+        lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    tool_output = json.loads(responses.requests[1]["input"][0]["output"])
+    assert [item["chunk_id"] for item in tool_output] == [
+        impact["chunk_id"],
+        root_cause["chunk_id"],
+        resolution["chunk_id"],
+    ]
+    assert answer["citations"][0]["chunk_id"] == root_cause["chunk_id"]
+
+
+def test_repeated_context_reads_do_not_resend_opened_chunks(monkeypatch):
+    chunks = [
+        {**_result(f"jira:DOC-1:{index}"), "text": f"Evidence {index}"}
+        for index in range(3)
+    ]
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [chunks[0]])
+    monkeypatch.setattr(
+        answer_module, "read_chunk_context", lambda *_args: chunks
+    )
+    responses = Responses([
+        SimpleNamespace(
+            id="reads",
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    name="read_chunk",
+                    arguments=json.dumps({
+                        "source": "jira", "chunk_id": chunks[0]["chunk_id"],
+                    }),
+                    call_id=f"call-{index}",
+                )
+                for index in range(2)
+            ],
+            output_text="",
+        ),
+        _final({
+            "answer": "Evidence [1].",
+            "evidence_status": "complete",
+            "citations": [chunks[0]["chunk_id"]],
+            "conflicts": [],
+            "missing_information": [],
+            "follow_ups": [],
+        }),
+    ])
+
+    answer = answer_module.answer_question(
+        None, "user", "What happened?", lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    outputs = responses.requests[1]["input"]
+    assert len(json.loads(outputs[0]["output"])) == 3
+    assert json.loads(outputs[1]["output"]) == []
+    assert answer["execution"]["opened_chunks"] == 3
+
+
 def test_every_answer_request_uses_strict_structured_output(monkeypatch):
     hit = _result()
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])
     monkeypatch.setattr(
-        answer_module, "read_chunk", lambda *_args: {**hit, "text": hit["excerpt"]}
+        answer_module, "read_chunk_context",
+        lambda *_args: [{**hit, "text": hit["excerpt"]}],
     )
     responses = Responses([
         _call("read", "read_chunk", {"source": "jira", "chunk_id": hit["chunk_id"]}),
@@ -203,11 +309,11 @@ def test_two_opened_conflict_citations_force_conflicting(monkeypatch):
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: hits)
     monkeypatch.setattr(
         answer_module,
-        "read_chunk",
-        lambda _conn, _user, _source, chunk_id: {
+        "read_chunk_context",
+        lambda _conn, _user, _source, chunk_id, _limit: [{
             **next(item for item in hits if item["chunk_id"] == chunk_id),
             "text": chunk_id,
-        },
+        }],
     )
     responses = Responses([
         SimpleNamespace(id="reads", output=[
@@ -293,7 +399,7 @@ def test_fast_tool_budget_forces_a_final_response_without_tools(monkeypatch):
 def test_tool_failure_returns_safe_partial_execution(monkeypatch):
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [_result()])
     monkeypatch.setattr(
-        answer_module, "read_chunk", lambda *_args: (_ for _ in ()).throw(
+        answer_module, "read_chunk_context", lambda *_args: (_ for _ in ()).throw(
             RuntimeError("database detail")
         )
     )
@@ -351,7 +457,9 @@ def test_non_object_tool_arguments_return_safe_execution_error(monkeypatch):
 def test_duplicate_citation_ids_return_one_citation(monkeypatch):
     hit = _result()
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])
-    monkeypatch.setattr(answer_module, "read_chunk", lambda *_args: {**hit, "text": "x"})
+    monkeypatch.setattr(
+        answer_module, "read_chunk_context", lambda *_args: [{**hit, "text": "x"}]
+    )
     responses = Responses([
         _call("read", "read_chunk", {"source": "jira", "chunk_id": hit["chunk_id"]}),
         _final({
@@ -374,11 +482,14 @@ def test_allowed_search_document_id_resolves_to_its_discovered_chunk(monkeypatch
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])
     reads = []
 
-    def read(_conn, _user, _source, chunk_id):
+    def read(_conn, _user, _source, chunk_id, _limit):
         reads.append(chunk_id)
-        return {**hit, "text": hit["excerpt"]} if chunk_id == hit["chunk_id"] else None
+        return (
+            [{**hit, "text": hit["excerpt"]}]
+            if chunk_id == hit["chunk_id"] else []
+        )
 
-    monkeypatch.setattr(answer_module, "read_chunk", read)
+    monkeypatch.setattr(answer_module, "read_chunk_context", read)
     responses = Responses([
         _call("read", "read_chunk", {
             "source": "jira", "chunk_id": hit["external_id"],

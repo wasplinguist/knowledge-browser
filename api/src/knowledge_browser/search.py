@@ -254,6 +254,54 @@ def read_chunk(
     return result
 
 
+def read_chunk_context(
+    conn,
+    user_id: UUID | str,
+    source: str,
+    chunk_id: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if limit < 1:
+        return []
+    rows = conn.execute(
+        f"""
+        SELECT context_chunks.id, context_chunks.field, context_chunks.text,
+               root.id, root.external_id, root.title, root.source, root.author,
+               documents.author, root.container, root.source_updated_at,
+               root.url, documents.id <> root.id, root.source_created_at,
+               context_chunks.chunk_index, documents.external_id,
+               documents.source_created_at, documents.source_updated_at
+        FROM chunks selected_chunk
+        JOIN documents ON documents.id = selected_chunk.document_id
+        JOIN documents root ON root.id = documents.root_document_id
+        JOIN chunks context_chunks
+          ON context_chunks.document_id = documents.id
+         AND context_chunks.source = selected_chunk.source
+         AND context_chunks.field = selected_chunk.field
+        WHERE root.root_document_id = root.id
+          AND {allowed_document_sql()}
+          AND {allowed_document_sql(document_alias="root")}
+          AND selected_chunk.source = %(source)s
+          AND selected_chunk.id = %(chunk_id)s
+        ORDER BY context_chunks.id = selected_chunk.id DESC,
+                 context_chunks.chunk_index, context_chunks.id
+        LIMIT %(limit)s
+        """,
+        {
+            "user_id": user_id,
+            "source": source,
+            "chunk_id": chunk_id,
+            "limit": min(limit, 100),
+        },
+    ).fetchall()
+    context = []
+    for row in rows:
+        result = _result(row)
+        result["text"] = row[2]
+        context.append(result)
+    return context
+
+
 def hybrid_search(
     conn,
     user_id: UUID | str,
