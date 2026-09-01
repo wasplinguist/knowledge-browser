@@ -14,4 +14,7 @@ coverage.xml
 postgres-data/
 .worktrees/
 .superpowers/
+data/*
+!data/company/
+!data/company/**
 data/.cache/

@@ -25,6 +25,20 @@ GitHub data.
 - Node.js 22.22.2 or newer
 - Docker with Compose
 
+## Start locally
+
+Copy `.env.example` to `.env`, add an `OPENAI_API_KEY`, then run:
+
+```bash
+./run_server.sh
+```
+
+The command starts PostgreSQL, initializes an empty database from the committed
+company dataset, verifies compatibility, and starts the API at
+`http://127.0.0.1:8000` and web app at `http://127.0.0.1:5173`. Existing
+exported environment variables take precedence over values in `.env`; later
+runs reuse a compatible populated database without importing it again.
+
 ## API
 
 ```bash
