@@ -241,6 +241,70 @@ def test_resume_finishes_without_duplicates_or_repeat_provider_work(
         assert load_progress(conn, partial.run_id, "jira").next_line == 4
 
 
+def test_progress_callback_runs_after_commit_and_failure_resumes_safely(
+    connection_factory, tiny_dataset, monkeypatch
+):
+    committed = []
+    clock = iter((10.0, 11.25, 20.0, 21.5, 23.0))
+    monkeypatch.setattr(bulk_import.time, "monotonic", lambda: next(clock))
+
+    def fail_after_first_commit(report):
+        with connection_factory() as conn:
+            progress = conn.execute(
+                """
+                SELECT next_line, documents
+                FROM bulk_import_progress
+                WHERE source = %s
+                """,
+                (report.source,),
+            ).fetchone()
+            documents = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
+        committed.append(
+            (
+                report.source,
+                report.next_line,
+                report.elapsed_seconds,
+                progress,
+                documents,
+            )
+        )
+        raise RuntimeError("progress output stopped")
+
+    with pytest.raises(RuntimeError, match="progress output stopped"):
+        run_import(
+            connection_factory,
+            tiny_dataset,
+            FakeEmbeddingClient,
+            document_batch_size=1,
+            progress_callback=fail_after_first_commit,
+        )
+
+    resumed_reports = []
+    final = run_import(
+        connection_factory,
+        tiny_dataset,
+        FakeEmbeddingClient,
+        document_batch_size=1,
+        progress_callback=resumed_reports.append,
+    )
+
+    assert committed == [("jira", 2, 1.25, (2, 1), 1)]
+    assert [
+        (report.source, report.next_line, report.elapsed_seconds)
+        for report in resumed_reports
+    ] == [
+        ("jira", 3, 1.5),
+        ("jira", 4, 3.0),
+    ]
+    assert final.complete is True
+    requested_sentences = [
+        sentence
+        for _, request in FakeEmbeddingClient.requests
+        for sentence in request
+    ]
+    assert len(requested_sentences) == len(set(requested_sentences))
+
+
 def test_concurrent_runs_do_not_repeat_provider_work_or_move_progress_backward(
     connection_factory, tiny_dataset
 ):

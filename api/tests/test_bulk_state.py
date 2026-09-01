@@ -135,6 +135,62 @@ def test_reset_rolls_back_if_a_schema_file_fails(
             conn.execute("DELETE FROM users WHERE email = 'preserved@test'")
 
 
+def test_reset_rolls_back_schema_and_data_if_deferred_index_drop_fails(
+    prepared_test_database, monkeypatch
+):
+    with psycopg.connect(prepared_test_database) as conn:
+        conn.execute(
+            "INSERT INTO users (email, name) VALUES ('preserved@test', 'Preserved')"
+        )
+        conn.execute("CREATE SCHEMA test_reset_guard")
+        conn.execute(
+            """
+            CREATE FUNCTION test_reset_guard.fail_deferred_index_drop()
+            RETURNS event_trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RAISE EXCEPTION 'forced deferred index failure';
+            END
+            $$
+            """
+        )
+        conn.execute(
+            """
+            CREATE EVENT TRIGGER fail_deferred_index_drop
+            ON ddl_command_start
+            WHEN TAG IN ('DROP INDEX')
+            EXECUTE FUNCTION test_reset_guard.fail_deferred_index_drop()
+            """
+        )
+
+    monkeypatch.setattr(bulk_state, "assert_redwood_database", lambda _url: None)
+    try:
+        with pytest.raises(
+            psycopg.errors.RaiseException,
+            match="forced deferred index failure",
+        ):
+            reset_redwood_database(prepared_test_database, SCHEMAS)
+
+        with psycopg.connect(prepared_test_database) as conn:
+            assert conn.execute(
+                "SELECT name FROM users WHERE email = 'preserved@test'"
+            ).fetchone() == ("Preserved",)
+            assert conn.execute(
+                """
+                SELECT count(*)
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname IN ('chunks_fts_idx', 'sentences_embedding_idx')
+                """
+            ).fetchone() == (2,)
+    finally:
+        with psycopg.connect(prepared_test_database) as conn:
+            conn.execute("DROP EVENT TRIGGER IF EXISTS fail_deferred_index_drop")
+            conn.execute("DROP SCHEMA IF EXISTS test_reset_guard CASCADE")
+        _prepare_test_database()
+
+
 def test_start_creates_run_and_all_source_progress(db, validated):
     run = start_or_resume_run(db, validated, "text-embedding-3-small", 1536)
 
@@ -302,8 +358,9 @@ def test_resume_rejects_changed_configuration(
         manifest=validated.manifest,
     )
 
-    with pytest.raises(BulkStateError, match=message):
+    with pytest.raises(BulkStateError, match=message) as captured:
         start_or_resume_run(db, changed, model, dimensions)
+    assert captured.value.safe_code == "changed_state"
 
 
 def test_start_rejects_partially_initialized_state_schema(db, validated):

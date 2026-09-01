@@ -32,6 +32,7 @@ class BatchReport:
     next_offset: int
     provider_calls: int
     source: str
+    elapsed_seconds: float = 0.0
 
 
 def stable_uuid(kind: str, key: str) -> UUID:

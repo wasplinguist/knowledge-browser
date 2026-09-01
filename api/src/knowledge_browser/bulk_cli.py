@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
-import time
 
 import psycopg
 
-from .bulk_import import prepare_bulk_load, run_import
+from .bulk_import import run_import
 from .bulk_state import assert_redwood_database, reset_redwood_database
 from .bulk_verify import MAX_P95_MS, verify_redwood
 from .config import database_url
@@ -29,17 +29,63 @@ SAFE_ERRORS = {
     "batch_import_failed",
     "embedding_provider_failed",
     "embedding_provider_invalid_response",
+    "missing_api_key",
 }
-ERRORS = {
-    "validate": "Redwood dataset validation failed.\n",
-    "reset": "Redwood reset failed; no database changes were completed.\n",
-    "run": "Redwood import failed; run status for safe details.\n",
-    "status": "Redwood status failed; check database access.\n",
-    "verify": "Redwood verification failed; check status first.\n",
+FAILURES = {
+    "invalid_manifest": (
+        "Redwood command failed: reason=invalid_manifest; "
+        "next_step=fix the dataset, then run validate again.\n"
+    ),
+    "changed_state": (
+        "Redwood command failed: reason=changed_state; "
+        "next_step=use the original dataset and model, or check the target "
+        "before an intentional reset.\n"
+    ),
+    "missing_api_key": (
+        "Redwood command failed: reason=missing_api_key; "
+        "next_step=set OPENAI_API_KEY, then run the command again.\n"
+    ),
+    "schema_failure": (
+        "Redwood command failed: reason=schema_failure; "
+        "next_step=check Redwood database access and schema, then retry; "
+        "reset changes roll back.\n"
+    ),
+    "verify_incompatible": (
+        "Redwood command failed: reason=verify_incompatible; "
+        "next_step=review the safe report and run status before retrying.\n"
+    ),
+    "import_failed": (
+        "Redwood command failed: reason=import_failed; "
+        "next_step=run status, fix the reported issue, then rerun run; "
+        "do not reset valid progress.\n"
+    ),
+    "status_failed": (
+        "Redwood command failed: reason=status_failed; "
+        "next_step=check Redwood database access, then retry status.\n"
+    ),
+    "verify_failed": (
+        "Redwood command failed: reason=verify_failed; "
+        "next_step=run status, fix the database or dataset setup, then retry verify.\n"
+    ),
 }
+COMMAND_FAILURES = {
+    "validate": "invalid_manifest",
+    "reset": "schema_failure",
+    "run": "import_failed",
+    "status": "status_failed",
+    "verify": "verify_failed",
+}
+
+
+class SafeCommandError(RuntimeError):
+    def __init__(self, safe_code: str):
+        super().__init__(safe_code)
+        self.safe_code = safe_code
 
 
 def _openai_client():
+    if not os.environ.get("OPENAI_API_KEY", "").strip():
+        raise SafeCommandError("missing_api_key")
     from openai import OpenAI
 
     return OpenAI()
@@ -51,6 +97,17 @@ def _connection_factory(url):
 
 def _database_url(args):
     return args.database_url or database_url()
+
+
+def _validated_dataset(path):
+    try:
+        return validate_streaming_dataset(path)
+    except Exception as error:
+        raise SafeCommandError("invalid_manifest") from error
+
+
+def _print_failure(reason):
+    sys.stderr.write(FAILURES[reason])
 
 
 def _add_database_argument(parser):
@@ -85,14 +142,18 @@ def _parser():
     return parser
 
 
-def _print_run(result, started):
-    for report in result.batches:
-        elapsed = time.monotonic() - started
-        print(
-            f"source={report.source} next_line={report.next_line} "
-            f"documents={report.documents} sentences={report.sentences} "
-            f"elapsed_seconds={elapsed:.2f} provider_calls={report.provider_calls}"
-        )
+def _print_batch(report):
+    print(
+        f"source={report.source} next_line={report.next_line} "
+        f"documents={report.documents} chunks={report.chunks} "
+        f"sentences={report.sentences} "
+        f"elapsed_seconds={report.elapsed_seconds:.2f} "
+        f"provider_calls={report.provider_calls}",
+        flush=True,
+    )
+
+
+def _print_run(result):
     print(
         f"run={result.run_id} "
         f"load_complete={'yes' if result.complete else 'no'} "
@@ -179,35 +240,33 @@ def main(argv=None):
 
     try:
         if args.command == "validate":
-            dataset = validate_streaming_dataset(args.data)
+            dataset = _validated_dataset(args.data)
             print(
                 "Redwood dataset is valid: "
                 f"artifacts={dataset.manifest['counts']['artifacts']}"
             )
         elif args.command == "reset":
-            validate_streaming_dataset(args.data)
+            _validated_dataset(args.data)
             url = _database_url(args)
             reset_redwood_database(url, SCHEMAS)
-            with _connection_factory(url)() as conn:
-                prepare_bulk_load(conn)
             print("Redwood database reset.")
         elif args.command == "run":
-            dataset = validate_streaming_dataset(args.data)
+            dataset = _validated_dataset(args.data)
             url = _database_url(args)
             assert_redwood_database(url)
-            started = time.monotonic()
             result = run_import(
                 _connection_factory(url),
                 dataset,
                 _openai_client,
                 document_batch_size=args.document_batch_size,
                 embedding_batch_size=args.embedding_batch_size,
+                progress_callback=_print_batch,
             )
-            _print_run(result, started)
+            _print_run(result)
         elif args.command == "status":
             _print_status(_database_url(args))
         else:
-            dataset = validate_streaming_dataset(args.data)
+            dataset = _validated_dataset(args.data)
             url = _database_url(args)
             assert_redwood_database(url)
             report = verify_redwood(
@@ -221,9 +280,13 @@ def main(argv=None):
             else:
                 _print_verification(report)
             if not report.compatible or report.p95_ms > MAX_P95_MS:
+                _print_failure("verify_incompatible")
                 return 1
-    except Exception:
-        sys.stderr.write(ERRORS[args.command])
+    except Exception as error:
+        reason = getattr(error, "safe_code", COMMAND_FAILURES[args.command])
+        if reason not in FAILURES:
+            reason = COMMAND_FAILURES[args.command]
+        _print_failure(reason)
         return 1
     return 0
 

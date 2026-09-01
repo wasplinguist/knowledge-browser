@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import knowledge_browser.bulk_cli as bulk_cli
+from knowledge_browser.bulk_state import BulkStateError
 from knowledge_browser.bulk_verify import VerificationReport
 from knowledge_browser.bulk_writer import BatchReport
 
@@ -74,7 +75,91 @@ def test_cli_hides_exception_details(monkeypatch, capsys):
     assert bulk_cli.main(["run", "--data", "/safe/data"]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == "Redwood import failed; run status for safe details.\n"
+    assert captured.err == (
+        "Redwood command failed: reason=import_failed; "
+        "next_step=run status, fix the reported issue, then rerun run; "
+        "do not reset valid progress.\n"
+    )
+    assert "secret text" not in captured.err
+
+
+def test_invalid_manifest_has_safe_reason_and_next_step(monkeypatch, capsys):
+    monkeypatch.setattr(
+        bulk_cli,
+        "validate_streaming_dataset",
+        lambda _path: (_ for _ in ()).throw(
+            ValueError("secret artifact content")
+        ),
+    )
+
+    assert bulk_cli.main(["validate", "--data", "/safe/data"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "Redwood command failed: reason=invalid_manifest; "
+        "next_step=fix the dataset, then run validate again.\n"
+    )
+    assert "secret artifact content" not in captured.err
+
+
+def test_changed_import_state_has_safe_reason_and_next_step(monkeypatch, capsys):
+    _safe_cli(monkeypatch)
+    error = BulkStateError("secret changed manifest detail")
+    error.safe_code = "changed_state"
+    monkeypatch.setattr(
+        bulk_cli,
+        "run_import",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+
+    assert bulk_cli.main(["run", "--data", "/safe/data"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "Redwood command failed: reason=changed_state; "
+        "next_step=use the original dataset and model, or check the target "
+        "before an intentional reset.\n"
+    )
+    assert "secret changed manifest detail" not in captured.err
+
+
+def test_missing_api_key_has_safe_reason_and_next_step(monkeypatch, capsys):
+    _safe_cli(monkeypatch)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def import_missing_key(_factory, _dataset, client_factory, **_kwargs):
+        client_factory()
+
+    monkeypatch.setattr(bulk_cli, "run_import", import_missing_key)
+
+    assert bulk_cli.main(["run", "--data", "/safe/data"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "Redwood command failed: reason=missing_api_key; "
+        "next_step=set OPENAI_API_KEY, then run the command again.\n"
+    )
+
+
+def test_reset_schema_failure_has_safe_reason_and_next_step(monkeypatch, capsys):
+    _safe_cli(monkeypatch)
+    monkeypatch.setattr(
+        bulk_cli,
+        "reset_redwood_database",
+        lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("secret database error")
+        ),
+    )
+
+    assert bulk_cli.main(["reset", "--data", "/safe/data", "--yes"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "Redwood command failed: reason=schema_failure; "
+        "next_step=check Redwood database access and schema, then retry; "
+        "reset changes roll back.\n"
+    )
+    assert "secret database error" not in captured.err
 
 
 def test_run_does_not_require_key_when_importer_does_not_request_client(
@@ -130,27 +215,36 @@ def test_run_prints_safe_batch_progress(monkeypatch, tmp_path, capsys):
     for source in ("jira", "github", "confluence"):
         (artifacts / f"{source}.jsonl").write_bytes(b"")
     _safe_cli(monkeypatch, SimpleNamespace(root=tmp_path))
-    monkeypatch.setattr(
-        bulk_cli,
-        "run_import",
-        lambda *_args, **_kwargs: SimpleNamespace(
+    report = BatchReport(
+        2, 3, 4, 3, 8, 2, "slack", elapsed_seconds=1.25
+    )
+    observed_during_run = []
+
+    def import_with_progress(*_args, **kwargs):
+        callback = kwargs.get("progress_callback")
+        if callback:
+            callback(report)
+        observed_during_run.append(capsys.readouterr().out)
+        return SimpleNamespace(
             run_id="run-1",
             complete=False,
             provider_calls=2,
-            batches=(BatchReport(2, 3, 4, 3, 8, 2, "slack"),),
-        ),
-    )
-    times = iter((10.0, 11.25))
-    monkeypatch.setattr(bulk_cli.time, "monotonic", lambda: next(times))
+            batches=(report,),
+        )
 
+    monkeypatch.setattr(bulk_cli, "run_import", import_with_progress)
     assert bulk_cli.main(["run", "--data", str(tmp_path)]) == 0
+    assert observed_during_run == [
+        "source=slack next_line=3 documents=2 chunks=3 sentences=4 "
+        "elapsed_seconds=1.25 provider_calls=2\n"
+    ]
     output = capsys.readouterr().out
+    assert "source=slack" not in output
+    assert "run=run-1 load_complete=no provider_calls=2" in output
     assert (
-        "source=slack next_line=3 documents=2 sentences=4 "
-        "elapsed_seconds=1.25 provider_calls=2"
-    ) in output
-    assert "one" not in output
-    assert "two" not in output
+        "one" not in observed_during_run[0]
+        and "two" not in observed_during_run[0]
+    )
 
 
 def test_resumed_run_prints_the_batch_source_not_the_first_dataset_source(
@@ -161,29 +255,28 @@ def test_resumed_run_prints_the_batch_source_not_the_first_dataset_source(
     for source in ("slack", "jira", "github", "confluence"):
         (artifacts / f"{source}.jsonl").write_bytes(b"record\n")
     _safe_cli(monkeypatch, SimpleNamespace(root=tmp_path))
-    monkeypatch.setattr(
-        bulk_cli,
-        "run_import",
-        lambda *_args, **_kwargs: SimpleNamespace(
+    def import_with_progress(*_args, **kwargs):
+        report = SimpleNamespace(
+            source="jira",
+            documents=1,
+            chunks=2,
+            sentences=3,
+            next_line=42,
+            next_offset=999,
+            provider_calls=1,
+            elapsed_seconds=1.0,
+        )
+        callback = kwargs.get("progress_callback")
+        if callback:
+            callback(report)
+        return SimpleNamespace(
             run_id="run-1",
             complete=False,
             provider_calls=1,
-            batches=(
-                SimpleNamespace(
-                    source="jira",
-                    documents=1,
-                    chunks=2,
-                    sentences=3,
-                    next_line=42,
-                    next_offset=999,
-                    provider_calls=1,
-                ),
-            ),
-        ),
-    )
-    times = iter((10.0, 11.0))
-    monkeypatch.setattr(bulk_cli.time, "monotonic", lambda: next(times))
+            batches=(report,),
+        )
 
+    monkeypatch.setattr(bulk_cli, "run_import", import_with_progress)
     assert bulk_cli.main(["run", "--data", str(tmp_path)]) == 0
     output = capsys.readouterr().out
     assert "source=jira next_line=42" in output
@@ -252,15 +345,7 @@ def test_status_prints_safe_manifest_identity_without_embedding_client(
     ]
 
 
-class _ContextConnection:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return None
-
-
-def test_reset_defers_large_indexes_after_schema_reset(monkeypatch, tmp_path):
+def test_reset_uses_one_atomic_schema_operation(monkeypatch, tmp_path):
     calls = []
     _safe_cli(monkeypatch, SimpleNamespace(root=tmp_path))
     monkeypatch.setattr(
@@ -271,16 +356,13 @@ def test_reset_defers_large_indexes_after_schema_reset(monkeypatch, tmp_path):
     monkeypatch.setattr(
         bulk_cli,
         "_connection_factory",
-        lambda _url: lambda: _ContextConnection(),
-    )
-    monkeypatch.setattr(
-        bulk_cli,
-        "prepare_bulk_load",
-        lambda _conn: calls.append("defer_indexes"),
+        lambda _url: (_ for _ in ()).throw(
+            AssertionError("second database transaction opened")
+        ),
     )
 
     assert bulk_cli.main(["reset", "--data", str(tmp_path), "--yes"]) == 0
-    assert calls == ["reset", "defer_indexes"]
+    assert calls == ["reset"]
 
 
 def _verification_report(*, compatible=True, p95_ms=20.0):
@@ -343,7 +425,12 @@ def test_verify_returns_failure_after_printing_incompatible_report(
     monkeypatch.setattr(bulk_cli, "_openai_client", lambda: object())
 
     assert bulk_cli.main(["verify", "--data", "/safe/data", "--json"]) == 1
-    assert json.loads(capsys.readouterr().out)["compatible"] is False
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["compatible"] is False
+    assert captured.err == (
+        "Redwood command failed: reason=verify_incompatible; "
+        "next_step=review the safe report and run status before retrying.\n"
+    )
 
 
 def test_verify_returns_failure_when_p95_exceeds_two_seconds(monkeypatch, capsys):
@@ -364,6 +451,19 @@ def _executable(path: Path, text: str) -> Path:
     path.write_text(text)
     path.chmod(0o755)
     return path
+
+
+def _managed_docker(tmp_path, details):
+    return _executable(
+        tmp_path / "docker",
+        "#!/usr/bin/env bash\n"
+        "if [ \"$1\" = inspect ]; then\n"
+        "  case \"$3\" in\n"
+        "    *State.Running*) printf '%s\\n' \"$FAKE_DETAILS\" ;;\n"
+        "    *) printf '%s\\n' 'knowledge-browser-redwood redwood-db' ;;\n"
+        "  esac\n"
+        "fi\n",
+    )
 
 
 def test_wrapper_refuses_unmanaged_container_name_conflict(tmp_path):
@@ -434,6 +534,121 @@ def test_wrapper_refuses_writes_to_an_unmanaged_container(tmp_path, command):
         "run start or complete the explicit handoff first.\n"
     )
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("command", [("reset", "--yes"), ("run",)])
+@pytest.mark.parametrize(
+    "details",
+    [
+        "knowledge-browser-redwood|redwood-db|false|1|127.0.0.1|5433",
+        "knowledge-browser-redwood|redwood-db|true|1|0.0.0.0|5433",
+        "knowledge-browser-redwood|redwood-db|true|1|127.0.0.1|5434",
+        (
+            "knowledge-browser-redwood|redwood-db|true|2|"
+            "127.0.0.1|5433|127.0.0.1|5434"
+        ),
+    ],
+)
+def test_wrapper_refuses_writes_until_exact_container_binding_is_running(
+    tmp_path, command, details
+):
+    marker = tmp_path / "python-ran"
+    docker = _managed_docker(tmp_path, details)
+    python = _executable(
+        tmp_path / "python",
+        "#!/usr/bin/env bash\n"
+        f"touch {marker}\n",
+    )
+    env = {
+        **os.environ,
+        "DOCKER_BIN": str(docker),
+        "FAKE_DETAILS": details,
+        "PYTHON_BIN": str(python),
+        "REDWOOD_POSTGRES_PORT": "5433",
+    }
+
+    completed = subprocess.run(
+        ["bash", str(SCRIPT), *command],
+        cwd=SCRIPT.parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert completed.stdout == ""
+    assert completed.stderr == (
+        "Redwood container check failed: reason=container_mismatch; "
+        "next_step=run start and check REDWOOD_POSTGRES_PORT "
+        "(expected 127.0.0.1:5433).\n"
+    )
+    assert not marker.exists()
+
+
+def test_wrapper_allows_writes_only_for_exact_running_binding(tmp_path):
+    log = tmp_path / "python.log"
+    details = "knowledge-browser-redwood|redwood-db|true|1|127.0.0.1|5544"
+    docker = _managed_docker(tmp_path, details)
+    python = _executable(
+        tmp_path / "python",
+        "#!/usr/bin/env bash\n"
+        "if [ \"$1\" = -c ]; then\n"
+        "  printf '%s\\n' "
+        "'postgresql://postgres:postgres@127.0.0.1:5544/knowledge_redwood'\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf '%s\\n' \"$*\" >\"$FAKE_LOG\"\n",
+    )
+    env = {
+        **os.environ,
+        "DOCKER_BIN": str(docker),
+        "FAKE_DETAILS": details,
+        "FAKE_LOG": str(log),
+        "PYTHON_BIN": str(python),
+        "REDWOOD_POSTGRES_PORT": "5544",
+    }
+
+    completed = subprocess.run(
+        ["bash", str(SCRIPT), "run", "--data", "/safe/data"],
+        cwd=SCRIPT.parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert log.read_text().strip() == (
+        "-m knowledge_browser.bulk_cli run --data /safe/data"
+    )
+
+
+def test_wrapper_start_waits_for_the_database_healthcheck(tmp_path):
+    log = tmp_path / "docker.log"
+    docker = _executable(
+        tmp_path / "docker",
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >>\"$FAKE_LOG\"\n"
+        "if [ \"$1\" = inspect ]; then exit 1; fi\n",
+    )
+    env = {
+        **os.environ,
+        "DOCKER_BIN": str(docker),
+        "FAKE_LOG": str(log),
+    }
+
+    completed = subprocess.run(
+        ["bash", str(SCRIPT), "start"],
+        cwd=SCRIPT.parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert "up -d --wait --wait-timeout 60 redwood-db" in log.read_text()
 
 
 def test_wrapper_start_finds_compose_file_outside_repo(tmp_path):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from itertools import islice
+import time
 from uuid import UUID
 
 from .bulk_state import load_progress, save_progress, start_or_resume_run
@@ -24,6 +25,7 @@ SAFE_ERRORS = {
     "batch_import_failed",
     "embedding_provider_failed",
     "embedding_provider_invalid_response",
+    "missing_api_key",
 }
 
 
@@ -147,6 +149,7 @@ def run_import(
     document_batch_size=100,
     embedding_batch_size=100,
     stop_after_batches=None,
+    progress_callback=None,
 ):
     """Start or resume a validated dataset import in committed batches."""
     if document_batch_size <= 0:
@@ -155,6 +158,7 @@ def run_import(
         raise ValueError("embedding_batch_size must be positive")
     if stop_after_batches is not None and stop_after_batches < 0:
         raise ValueError("stop_after_batches must not be negative")
+    started = time.monotonic()
 
     run = None
     failure_recorded = False
@@ -215,6 +219,12 @@ def run_import(
                                 chunks=progress.chunks + report.chunks,
                                 sentences=progress.sentences + report.sentences,
                             )
+                        report = replace(
+                            report,
+                            elapsed_seconds=time.monotonic() - started,
+                        )
+                        if progress_callback is not None:
+                            progress_callback(report)
                         reports.append(report)
                         progress = replace(
                             progress,

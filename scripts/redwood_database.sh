@@ -22,6 +22,12 @@ container_owner() {
     knowledge-redwood-db 2>/dev/null
 }
 
+container_details() {
+  "$docker_bin" inspect \
+    --format '{{- $bindings := index .NetworkSettings.Ports "5432/tcp" -}}{{ index .Config.Labels "com.docker.compose.project" }}|{{ index .Config.Labels "com.docker.compose.service" }}|{{ .State.Running }}|{{ len $bindings }}{{ range $bindings }}|{{ .HostIp }}|{{ .HostPort }}{{ end }}' \
+    knowledge-redwood-db 2>/dev/null
+}
+
 require_safe_container() {
   local owner
   if owner="$(container_owner)"; then
@@ -34,11 +40,20 @@ require_safe_container() {
 }
 
 require_managed_container() {
-  local owner
+  local owner details expected_port expected
   owner="$(container_owner)" || owner=""
   [ "$owner" = "$compose_project redwood-db" ] || {
     echo "knowledge-redwood-db is not managed by this Compose project;" \
       "run start or complete the explicit handoff first." >&2
+    return 1
+  }
+  expected_port="${REDWOOD_POSTGRES_PORT:-5433}"
+  expected="$compose_project|redwood-db|true|1|127.0.0.1|$expected_port"
+  details="$(container_details)" || details=""
+  [ "$details" = "$expected" ] || {
+    echo "Redwood container check failed: reason=container_mismatch;" \
+      "next_step=run start and check REDWOOD_POSTGRES_PORT" \
+      "(expected 127.0.0.1:$expected_port)." >&2
     return 1
   }
 }
@@ -65,7 +80,7 @@ case "$command" in
   start)
     require_safe_container
     "$docker_bin" compose --project-directory "$project_root" \
-      -p "$compose_project" --profile redwood up -d redwood-db
+      -p "$compose_project" --profile redwood up -d --wait --wait-timeout 60 redwood-db
     ;;
   stop)
     require_safe_container

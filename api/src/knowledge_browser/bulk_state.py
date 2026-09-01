@@ -39,6 +39,13 @@ POPULATED_SQL = """
 class BulkStateError(Exception):
     """A safe, actionable bulk-import state error."""
 
+    safe_code = "schema_failure"
+
+    def __init__(self, message: str, *, safe_code: str | None = None):
+        super().__init__(message)
+        if safe_code is not None:
+            self.safe_code = safe_code
+
 
 @dataclass(frozen=True, slots=True)
 class BulkRun:
@@ -86,6 +93,8 @@ def reset_redwood_database(
         conn.execute("CREATE SCHEMA public")
         for schema_path in schema_paths:
             conn.execute(schema_path.read_text())
+        conn.execute("DROP INDEX IF EXISTS public.chunks_fts_idx")
+        conn.execute("DROP INDEX IF EXISTS public.sentences_embedding_idx")
 
 
 def _required_tables(conn) -> set[str]:
@@ -162,13 +171,21 @@ def _start_or_resume_run(conn, validated, model, dimensions) -> BulkRun:
         raise BulkStateError("database contains incompatible bulk import state")
     run = _load_run(rows[0])
     if run.manifest_digest != validated.manifest_digest:
-        raise BulkStateError("bulk import manifest changed")
+        raise BulkStateError(
+            "bulk import manifest changed", safe_code="changed_state"
+        )
     if run.dataset_version != dataset_version:
-        raise BulkStateError("bulk import dataset version changed")
+        raise BulkStateError(
+            "bulk import dataset version changed", safe_code="changed_state"
+        )
     if run.embedding_model != model:
-        raise BulkStateError("bulk import model changed")
+        raise BulkStateError(
+            "bulk import model changed", safe_code="changed_state"
+        )
     if run.embedding_dimensions != dimensions:
-        raise BulkStateError("bulk import dimensions changed")
+        raise BulkStateError(
+            "bulk import dimensions changed", safe_code="changed_state"
+        )
 
     progress_sources = {
         row[0]
