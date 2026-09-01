@@ -87,10 +87,18 @@ def _transient(error: Exception) -> bool:
         ),
     ):
         return True
-    return isinstance(error, APIStatusError) and error.status_code >= 500
+    return isinstance(error, APIStatusError) and (
+        error.status_code in {408, 409, 429} or error.status_code >= 500
+    )
+
+
+def _without_internal_retries(client):
+    with_options = getattr(client, "with_options", None)
+    return with_options(max_retries=0) if callable(with_options) else client
 
 
 def _request_with_retry(client, model, batch):
+    client = _without_internal_retries(client)
     for attempt in range(5):
         try:
             return _vectors(

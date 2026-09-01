@@ -1,9 +1,13 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from threading import Event, Lock
 from types import SimpleNamespace
 
+import httpx
 import psycopg
 import pytest
+from openai import APIStatusError, OpenAI
 
 from conftest import _prepare_test_database
 import knowledge_browser.bulk_import as bulk_import
@@ -236,6 +240,69 @@ def test_resume_finishes_without_duplicates_or_repeat_provider_work(
         assert load_progress(conn, partial.run_id, "jira").next_line == 4
 
 
+def test_concurrent_runs_do_not_repeat_provider_work_or_move_progress_backward(
+    connection_factory, tiny_dataset
+):
+    first_provider_started = Event()
+    second_provider_started = Event()
+    release_first_provider = Event()
+    request_lock = Lock()
+
+    class CoordinatedClient:
+        requests = []
+
+        def __init__(self):
+            self.embeddings = self
+
+        def create(self, *, model, input):
+            with request_lock:
+                request_index = len(type(self).requests)
+                type(self).requests.append((model, tuple(input)))
+            if request_index == 0:
+                first_provider_started.set()
+                if not release_first_provider.wait(5):
+                    raise TimeoutError("test provider was not released")
+            else:
+                second_provider_started.set()
+            return SimpleNamespace(
+                data=[
+                    SimpleNamespace(index=index, embedding=VECTOR)
+                    for index, _ in enumerate(input)
+                ]
+            )
+
+    def import_one(batch_size):
+        return run_import(
+            connection_factory,
+            tiny_dataset,
+            CoordinatedClient,
+            document_batch_size=batch_size,
+            stop_after_batches=1,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(import_one, 1)
+        assert first_provider_started.wait(5)
+        second = executor.submit(import_one, 2)
+        if second_provider_started.wait(2):
+            second.result(timeout=5)
+        release_first_provider.set()
+        first_result = first.result(timeout=5)
+        second_result = second.result(timeout=5)
+
+    requested_sentences = [
+        sentence
+        for _, request in CoordinatedClient.requests
+        for sentence in request
+    ]
+    assert len(requested_sentences) == len(set(requested_sentences))
+    assert first_result.run_id == second_result.run_id
+    with connection_factory() as conn:
+        progress = load_progress(conn, first_result.run_id, "jira")
+        assert (progress.next_line, progress.documents) == (4, 3)
+        assert conn.execute("SELECT count(*) FROM documents").fetchone() == (3,)
+
+
 def test_cache_rows_documents_and_progress_roll_back_together(
     connection_factory, tiny_dataset, monkeypatch
 ):
@@ -267,28 +334,65 @@ def test_cache_rows_documents_and_progress_roll_back_together(
 def test_transient_provider_failure_stops_after_five_attempts_with_safe_state(
     connection_factory, tiny_dataset, monkeypatch
 ):
-    class UnavailableClient:
-        attempts = 0
+    transport_attempts = 0
 
-        def __init__(self):
-            self.embeddings = self
-
-        def create(self, **_request):
-            type(self).attempts += 1
-            raise TimeoutError("secret provider payload")
-
-    monkeypatch.setattr("knowledge_browser.embedding_index.time.sleep", lambda _delay: None)
-
-    with pytest.raises(RuntimeError, match="embedding provider unavailable"):
-        run_import(
-            connection_factory,
-            tiny_dataset,
-            UnavailableClient,
-            document_batch_size=1,
+    def unavailable(_request):
+        nonlocal transport_attempts
+        transport_attempts += 1
+        return httpx.Response(
+            500,
+            json={"error": {"message": "secret provider payload"}},
         )
 
-    assert UnavailableClient.attempts == 5
+    monkeypatch.setattr("knowledge_browser.embedding_index.time.sleep", lambda _delay: None)
+    http_client = httpx.Client(transport=httpx.MockTransport(unavailable))
+    client = OpenAI(
+        api_key="test-key",
+        base_url="https://api.openai.test/v1",
+        http_client=http_client,
+    )
+    assert client.max_retries > 0
+    try:
+        with pytest.raises(RuntimeError, match="embedding provider unavailable"):
+            run_import(
+                connection_factory,
+                tiny_dataset,
+                lambda: client,
+                document_batch_size=1,
+            )
+    finally:
+        client.close()
+
+    assert transport_attempts == 5
     with connection_factory() as conn:
         assert conn.execute(
             "SELECT status, safe_error FROM bulk_import_runs"
         ).fetchone() == ("failed", "embedding_provider_failed")
+
+
+@pytest.mark.parametrize("status_code", [408, 409])
+def test_embedding_cache_retries_timeout_and_conflict_statuses(
+    db, run, monkeypatch, status_code
+):
+    class StatusClient:
+        def __init__(self):
+            self.calls = 0
+            self.embeddings = self
+
+        def create(self, **_request):
+            self.calls += 1
+            if self.calls == 1:
+                response = httpx.Response(
+                    status_code,
+                    request=httpx.Request("POST", "https://api.openai.test/embeddings"),
+                )
+                raise APIStatusError("retryable status", response=response, body=None)
+            return SimpleNamespace(
+                data=[SimpleNamespace(index=0, embedding=VECTOR)]
+            )
+
+    client = StatusClient()
+    monkeypatch.setattr("knowledge_browser.embedding_index.time.sleep", lambda _delay: None)
+
+    assert embed_missing(db, run.id, client, MODEL, ["retry me"])["retry me"]
+    assert client.calls == 2
