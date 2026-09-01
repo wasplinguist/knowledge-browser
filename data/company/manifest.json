@@ -1,0 +1,27 @@
+{
+  "counts": {
+    "artifacts": 1000,
+    "companies": 1,
+    "employees": 100,
+    "incidents": 125,
+    "projects": 25,
+    "qa": 603,
+    "teams": 10
+  },
+  "dataset_version": "0.1.0",
+  "files": {
+    "acl.jsonl": "6e5abfe691694336bd66993b34aef5343ed25dad4fd854ac1e158a4090b6f108",
+    "artifacts/confluence.jsonl": "2bf97adb9e4ff3d7439c34f05a14de7003076ad0e3d3414a4467ff014141c4a7",
+    "artifacts/github.jsonl": "516231cc489f6637c7245ba64a777eac8638783aa4aff6c15709a73e75464ece",
+    "artifacts/jira.jsonl": "b4c47a7e5104c0cad57d6564f8a63e2b9262f670e164b1f3df4b39574dc0afd7",
+    "artifacts/slack.jsonl": "279ee14967ec64cd6a827730ece9adfb67a5ed881fc1a391e27da1cbd6df259c",
+    "employees.jsonl": "71cd168ad69a03d259a8a0986cf6f47cd097fe3d6a6d2beaadd3216c6c75ec08",
+    "events.jsonl": "514f8451bda0d3b249fb31c13ac9cf2c83a009000d58a7a6d5d1f4ba29a64822",
+    "evidence_graphs.jsonl": "1b231161fc075bd33f133f5ab582411078ff4711d95fc0f9cb00ccc9d891d8cb",
+    "projects.jsonl": "b15902154d88844ac88d6bd9587afdca7e43611e9d3025d285288f422c22e4b9",
+    "qa.jsonl": "38c1f03c936fc86159b83376baf6ad90341b533e5adfdfa8f48382b6fbfe56cf",
+    "teams.jsonl": "6586ac90bb30385dbcd362b1d22f044f62f68fac327464ddb3c373dd784285dd",
+    "world.json": "8829b3da8bcc5092ef423ecb05a10f58dd0ca46d7c139a67aa2568fb5f1394ca"
+  },
+  "seed": 42
+}

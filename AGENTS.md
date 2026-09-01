@@ -10,6 +10,10 @@ Do not copy old experiments, caches, generated reports, local settings, or
 inactive datasets into this repository. The old `knowledge-search` repository
 is reference material only.
 
+The only approved old-data snapshot is `data/company/**`, which is
+manifest-verified source data for the portable bootstrap. Keep all other old
+artifacts and dataset generation deferred.
+
 ## Active product order
 
 Build against the populated existing database in this order: existing database
