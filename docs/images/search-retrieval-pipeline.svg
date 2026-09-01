@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Knowledge Browser retrieval and ranking pipeline</title>
+  <desc id="desc">A left-to-right pipeline showing identity validation, profile-based whole-term query expansion, parallel ACL-filtered keyword and semantic retrieval, reciprocal rank fusion, profile-driven ranking signals, root grouping, and ranked or grounded-answer results.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font: 700 38px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .step { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; letter-spacing: 1.4px; }
+      .heading { font: 700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .body { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .small { font: 500 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .badge { font: 700 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .light-step { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #94a3b8; letter-spacing: 1.4px; }
+      .light-heading { font: 700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .light-body { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #cbd5e1; }
+      .line { stroke: #475569; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .soft-line { stroke: #94a3b8; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" rx="30" fill="#f8fafc"/>
+  <text x="80" y="74" class="title">Search retrieval &amp; ranking</text>
+  <text x="80" y="110" class="subtitle">One ACL-safe hybrid pipeline powers both the result list and the answer agent.</text>
+
+  <rect x="70" y="165" width="235" height="145" rx="20" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="95" y="198" class="step">INPUT</text>
+  <text x="95" y="235" class="heading">Question</text>
+  <text x="95" y="266" class="body">+ demo user</text>
+  <text x="95" y="292" class="small">+ optional source</text>
+
+  <path d="M 305 237 L 350 237" class="line"/>
+
+  <rect x="350" y="145" width="285" height="185" rx="20" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+  <text x="375" y="178" class="step">IDENTITY &amp; QUERY</text>
+  <text x="375" y="216" class="heading">Resolve + normalize</text>
+  <circle cx="382" cy="249" r="5" fill="#0891b2"/>
+  <text x="397" y="255" class="body">Identity + source</text>
+  <circle cx="382" cy="280" r="5" fill="#0891b2"/>
+  <text x="397" y="286" class="body">Whole-term aliases</text>
+  <circle cx="382" cy="311" r="5" fill="#0891b2"/>
+  <text x="397" y="317" class="body">Embed effective query</text>
+
+  <path d="M 635 237 L 690 237" class="line"/>
+
+  <rect x="690" y="145" width="360" height="355" rx="22" fill="#ffffff" stroke="#6366f1" stroke-width="3"/>
+  <text x="715" y="180" class="step">HYBRID CANDIDATE RETRIEVAL</text>
+
+  <rect x="720" y="215" width="300" height="105" rx="16" fill="#eef2ff" stroke="#818cf8" stroke-width="2"/>
+  <text x="745" y="252" class="heading">Keyword</text>
+  <text x="745" y="281" class="body">PostgreSQL full text</text>
+  <text x="745" y="306" class="small">ACL SQL · exact IDs · terms</text>
+
+  <rect x="720" y="345" width="300" height="105" rx="16" fill="#f5f3ff" stroke="#a78bfa" stroke-width="2"/>
+  <text x="745" y="382" class="heading">Semantic</text>
+  <text x="745" y="411" class="body">pgvector cosine distance</text>
+  <text x="745" y="436" class="small">ACL SQL · meaning · best sentence</text>
+
+  <rect x="755" y="475" width="230" height="45" rx="22" fill="#475569"/>
+  <text x="870" y="504" class="badge" text-anchor="middle">No vector → keyword continues</text>
+  <path d="M 1050 322 L 1095 322" class="line"/>
+
+  <rect x="1095" y="225" width="205" height="195" rx="22" fill="#fff7ed" stroke="#ea580c" stroke-width="3"/>
+  <text x="1120" y="260" class="step">MERGE</text>
+  <text x="1120" y="303" class="heading">RRF</text>
+  <text x="1120" y="334" class="body">Combine ranks,</text>
+  <text x="1120" y="361" class="body">not raw scores</text>
+  <rect x="1120" y="380" width="155" height="28" rx="14" fill="#ffedd5"/>
+  <text x="1198" y="400" class="small" text-anchor="middle">equal weights</text>
+
+  <path d="M 1300 322 L 1350 322" class="line"/>
+
+  <rect x="1350" y="225" width="180" height="195" rx="22" fill="#f0fdf4" stroke="#16a34a" stroke-width="3"/>
+  <text x="1375" y="260" class="step">GROUP</text>
+  <text x="1375" y="303" class="heading">Root result</text>
+  <text x="1375" y="334" class="body">Child excerpt</text>
+  <text x="1375" y="361" class="body">Parent context</text>
+  <text x="1375" y="388" class="body">No duplicates</text>
+
+  <rect x="70" y="575" width="1015" height="230" rx="24" fill="#fffdf5" stroke="#d97706" stroke-width="2" stroke-dasharray="10 8"/>
+  <text x="100" y="615" class="step">PROFILE-DRIVEN RERANKING</text>
+  <text x="100" y="650" class="small">Released-profile weights reorder candidates already found by hybrid retrieval.</text>
+
+  <rect x="100" y="685" width="285" height="85" rx="18" fill="#fffbeb" stroke="#f59e0b" stroke-width="2"/>
+  <text x="125" y="720" class="heading">Freshness</text>
+  <text x="125" y="750" class="small">“latest”, “current”, “recent”</text>
+
+  <rect x="410" y="685" width="315" height="85" rx="18" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="435" y="720" class="heading">Source authority</text>
+  <text x="435" y="750" class="small">Jira status · GitHub code · docs</text>
+
+  <rect x="750" y="685" width="305" height="85" rx="18" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+  <text x="775" y="720" class="heading">Personalization</text>
+  <text x="775" y="750" class="small">Primary project · rerank only</text>
+
+  <path d="M 1198 420 C 1198 555, 1030 555, 1030 575" class="soft-line"/>
+  <path d="M 1085 690 C 1235 690, 1260 440, 1350 388" class="soft-line"/>
+
+  <rect x="1160" y="575" width="370" height="230" rx="24" fill="#0f172a"/>
+  <text x="1190" y="615" class="light-step">OUTPUT</text>
+  <text x="1190" y="661" class="light-heading">Ranked roots</text>
+  <text x="1190" y="697" class="light-body">Results + source facets</text>
+  <path d="M 1190 725 L 1500 725" stroke="#334155" stroke-width="2"/>
+  <text x="1190" y="761" class="light-body">or → open evidence → answer</text>
+
+  <rect x="70" y="835" width="1460" height="38" rx="19" fill="#e2e8f0"/>
+  <text x="800" y="860" class="small" text-anchor="middle">ACLs filter both matched children and canonical roots. Candidate profiles stay inactive until evaluation, full ACL, and human review.</text>
+</svg>

@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Golden set construction and evaluation</title>
+  <desc id="desc">A five-stage pipeline from committed canonical company truth through noisy source artifacts, golden questions, integrity validation, retrieval and ACL evaluation, plus separate fixture-based RAG safety checks.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font: 700 38px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .step { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; letter-spacing: 1.2px; }
+      .heading { font: 700 23px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .body { font: 400 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .small { font: 500 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .metric { font: 700 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .line { stroke: #475569; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" rx="30" fill="#f8fafc"/>
+  <text x="70" y="72" class="title">How the golden set becomes an evaluation</text>
+  <text x="70" y="108" class="subtitle">Committed truth comes first; questions and expected evidence stay independent from retrieval output and model judgment.</text>
+
+  <rect x="55" y="145" width="1490" height="430" rx="26" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+
+  <rect x="85" y="205" width="250" height="295" rx="20" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="110" y="242" class="step">1 · CANONICAL TRUTH</text>
+  <text x="110" y="282" class="heading">Structured world</text>
+  <text x="110" y="322" class="body">employees · teams</text>
+  <text x="110" y="352" class="body">projects · aliases</text>
+  <text x="110" y="382" class="body">incidents · timelines</text>
+  <text x="110" y="412" class="body">facts · owners · status</text>
+  <rect x="110" y="447" width="195" height="30" rx="15" fill="#dbeafe"/>
+  <text x="208" y="468" class="small" text-anchor="middle">source of truth</text>
+
+  <path d="M 335 352 L 375 352" class="line"/>
+
+  <rect x="375" y="185" width="265" height="335" rx="20" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+  <text x="400" y="222" class="step">2 · SOURCE RENDERING</text>
+  <text x="400" y="262" class="heading">Search corpus</text>
+  <text x="400" y="302" class="body">Slack · Jira</text>
+  <text x="400" y="332" class="body">GitHub · Confluence</text>
+  <text x="400" y="377" class="small">useful evidence plus:</text>
+  <text x="400" y="407" class="body">duplicates · stale claims</text>
+  <text x="400" y="437" class="body">conflicts · distractors</text>
+  <text x="400" y="467" class="body">company · team · user ACLs</text>
+
+  <path d="M 640 352 L 680 352" class="line"/>
+
+  <rect x="680" y="165" width="300" height="375" rx="20" fill="#eef2ff" stroke="#6366f1" stroke-width="3"/>
+  <text x="705" y="202" class="step">3 · GOLDEN SET</text>
+  <text x="705" y="242" class="heading">603 questions</text>
+  <text x="705" y="282" class="body">query + asker identity</text>
+  <text x="705" y="312" class="body">graded relevant artifacts</text>
+  <text x="705" y="342" class="body">required facts + events</text>
+  <text x="705" y="372" class="body">expected source coverage</text>
+  <text x="705" y="402" class="body">known distractors</text>
+  <text x="705" y="432" class="body">must-not-appear evidence</text>
+  <text x="705" y="462" class="body">typed evidence graph</text>
+  <rect x="705" y="492" width="245" height="30" rx="15" fill="#e0e7ff"/>
+  <text x="828" y="513" class="small" text-anchor="middle">expected behavior per query</text>
+
+  <path d="M 980 352 L 1020 352" class="line"/>
+
+  <rect x="1020" y="185" width="235" height="335" rx="20" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+  <text x="1045" y="222" class="step">4 · VALIDATION</text>
+  <text x="1045" y="262" class="heading">Integrity gates</text>
+  <text x="1045" y="302" class="body">schema + references</text>
+  <text x="1045" y="332" class="body">gold is ACL-readable</text>
+  <text x="1045" y="362" class="body">distractors are not gold</text>
+  <text x="1045" y="392" class="body">evidence reaches answer</text>
+  <text x="1045" y="422" class="body">typed evidence paths</text>
+  <text x="1045" y="452" class="body">manifest SHA-256</text>
+
+  <path d="M 1255 352 L 1295 352" class="line"/>
+
+  <rect x="1295" y="205" width="220" height="295" rx="20" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="1320" y="242" class="step">5 · EVALUATE</text>
+  <text x="1320" y="282" class="heading">Search behavior</text>
+  <text x="1320" y="322" class="body">keyword</text>
+  <text x="1320" y="352" class="body">semantic</text>
+  <text x="1320" y="382" class="body">hybrid</text>
+  <text x="1320" y="427" class="small">released profile</text>
+  <text x="1320" y="454" class="small">vs challenger</text>
+
+  <text x="70" y="630" class="step">WHAT THE BENCHMARK MEASURES</text>
+
+  <rect x="70" y="665" width="455" height="165" rx="20" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="100" y="705" class="metric">Retrieval quality</text>
+  <text x="100" y="742" class="body">Recall@10 · MRR@10 · nDCG@10</text>
+  <text x="100" y="775" class="body">forbidden results · wins · losses</text>
+  <text x="100" y="808" class="small">overall and by question family</text>
+
+  <rect x="572" y="665" width="455" height="165" rx="20" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+  <text x="602" y="705" class="metric">ACL safety</text>
+  <text x="602" y="742" class="body">603 questions × 100 demo users</text>
+  <text x="602" y="775" class="body">root leaks · matched-child leaks</text>
+  <text x="602" y="808" class="small">release requirement: zero leaks</text>
+
+  <rect x="1074" y="665" width="455" height="165" rx="20" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="1104" y="705" class="metric">Fixture RAG safety</text>
+  <text x="1104" y="742" class="body">duplicate citations · unopened citations</text>
+  <text x="1104" y="775" class="body">complete answers without citations</text>
+  <text x="1104" y="808" class="small">separate focused test suite</text>
+
+  <text x="800" y="870" class="subtitle" text-anchor="middle">Synthetic evidence supports controlled comparison; it does not prove superiority over native service search.</text>
+</svg>

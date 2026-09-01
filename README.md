@@ -103,16 +103,27 @@ Search snippets are leads rather than citable evidence. The answer workflow
 must open a chunk before citing it, and the server validates permissions,
 budgets, evidence state, and citations throughout the request.
 
-## Architecture
+## Project architecture
 
-The API package lives in `api/src/knowledge_browser/`, the React application in
-`web/`, the database schema in `db/init/`, and the committed company data in
-`data/company/`. The released retrieval configuration is
-`search/profiles/released.json`.
+Knowledge Browser runs the web app and API directly on the host. Docker Compose
+runs PostgreSQL with pgvector. The first startup validates and imports the
+committed company dataset; later startups verify and reuse the populated
+database without resetting it.
 
-Search applies ACL filtering inside SQL before ranking or reading content. The
-same released retrieval profile is used for result lists and initial answer
-evidence, so grounded answers cannot bypass search permissions.
+![Knowledge Browser project architecture](docs/images/project-architecture.svg)
+
+| Area | Primary paths | Responsibility |
+| --- | --- | --- |
+| Local runtime | `run_server.sh`, `web/`, `api/` | Start React/Vite and FastAPI, serve search, documents, answers, and event capture |
+| Data and index | `data/company/`, `db/init/`, `scripts/setup_database.sh` | Validate the manifest, create the schema, import artifacts and ACLs, and build sentence embeddings |
+| Search configuration | `search/profiles/` | Keep released and challenger retrieval settings versioned and reviewable |
+| Evaluation | `eval/`, `scripts/run_eval_loop.py` | Compare profiles on controlled queries and write review artifacts outside Git |
+
+The API package lives in `api/src/knowledge_browser/`. PostgreSQL stores users,
+groups, permissions, root and child documents, full-text chunks, sentence
+vectors, and search events. OpenAI provides first-run sentence embeddings,
+query embeddings, and grounded answer generation; keyword retrieval remains
+available if a query embedding fails after setup.
 
 The main API routes are:
 
@@ -123,20 +134,93 @@ The main API routes are:
 - `GET /api/documents/{source}/{external_id}`
 - `POST /api/search-events/{search_id}/click`
 
-## Evaluation
+## Search architecture
 
-Committed evaluation definitions live in `eval/`. Retrieval evaluation covers
-known-item, semantic, multi-hop, temporal, alias, personalized, and negative
-queries. ACL evaluation checks configured user/query pairs and requires zero
-root or matched-child leaks.
+One profile-controlled hybrid pipeline powers the result list and the initial
+evidence search for grounded answers. Permission checks happen in SQL before a
+document can become a candidate, not after ranking.
 
-These evaluations compare controlled Knowledge Browser search profiles. They
-do not by themselves prove superiority over the native search products of
-Slack, Jira, Confluence, or GitHub.
+![Knowledge Browser hybrid retrieval and ranking pipeline](docs/images/search-retrieval-pipeline.svg)
 
-### Eval-driven development
+1. The API resolves the selected demo identity, validates the optional source,
+   and normalizes the query with the active profile. Profiles can apply
+   whole-term project aliases without rewriting Jira issue keys or larger
+   words.
+2. Keyword and semantic retrieval run independently. PostgreSQL full-text
+   search favors exact identifiers and term overlap; pgvector finds the nearest
+   indexed sentence by meaning. Both paths require access to the matched child
+   and its canonical root.
+3. Reciprocal rank fusion combines rank positions rather than incompatible raw
+   scores. Profile-weighted exact Jira-key, freshness, source-authority, and
+   primary-project signals can reorder candidates already found by retrieval.
+4. Matches are grouped by canonical root, keeping the highest-ranked matching
+   child excerpt while returning each root only once.
+5. Search returns ranked snippets and source facets. The answer workflow treats
+   snippets as leads, opens full allowed chunks, and accepts citations only from
+   evidence opened during that request.
 
-Generate a fresh behavior report outside every Git worktree:
+The runtime default is `search/profiles/released.json`. Files under
+`search/profiles/candidates/` do not change product behavior by themselves;
+promotion requires fresh quality evidence, exhaustive ACL verification, and
+human approval.
+
+## Golden set and evaluation
+
+The committed benchmark begins with structured company truth and renders it
+across Slack, Jira, GitHub, and Confluence alongside duplicates, stale claims,
+conflicts, distractors, and access restrictions. Expected evidence is defined
+independently from search output.
+
+![Golden set construction and evaluation](docs/images/golden-set-evaluation.svg)
+
+The dataset contains 100 employees in 10 teams, 25 projects, 125 incidents, and
+1,000 artifacts—250 from each source. `data/company/manifest.json` fingerprints
+the imported files. The evaluation definitions are separated by runtime cost:
+
+| File | Purpose |
+| --- | --- |
+| `eval/golden_queries.json` | Four small, hand-checkable queries for fast pull-request evaluation |
+| `eval/queries.json` | The complete 603-question retrieval benchmark |
+
+| Question family | Questions | What it evaluates |
+| --- | ---: | --- |
+| **Lexical / known item** | 125 | Exact IDs, names, and keywords |
+| **Semantic** | 151 | The same meaning expressed with different wording |
+| **Multi-hop** | 125 | Evidence combined across documents and sources |
+| **Temporal** | 150 | Current truth, ordering, and conflicting old claims |
+| **Alias** | 25 | Project acronyms and different cross-source names |
+| **Personalized** | 25 | Relevance to the asker's primary project |
+| **Negative / not found** | 2 | Returning no supported evidence without inventing or leaking an answer |
+| **Total** | **603** | |
+
+Retrieval reports MRR@10 for the first relevant result, nDCG@10 for graded
+ordering, Recall@10 for expected-evidence coverage, and forbidden-result leaks.
+Released-versus-challenger comparisons also record per-query wins, losses, and
+ties plus latency.
+
+Fast pull-request checks use small fixtures and a deterministic ACL sample.
+The `full_retrieval` gate runs all 603 questions against the populated database.
+The `full_acl` gate evaluates 603 questions across 100 users—60,300 pairs—and
+requires zero canonical-root and matched-child leaks. Full retrieval and full
+ACL are manual or nightly release gates, not ordinary pull-request checks.
+
+These controlled results compare Knowledge Browser profiles on committed
+synthetic data. They do not by themselves prove superiority over native Slack,
+Jira, GitHub, or Confluence search.
+
+## Eval-driven development loop
+
+Search changes begin with fresh behavior evidence, not a speculative ranking
+tweak. One observed problem becomes one intent-audited hypothesis, one new
+challenger, and one new comparison.
+
+![Eval-driven development lifecycle](docs/images/eval-driven-development-loop.svg)
+
+```text
+Behavior → Insight → Hypothesis → Intent audit → Challenger → New eval → Decision
+```
+
+Generate a fresh read-only behavior report outside every Git worktree:
 
 ```bash
 PYTHONPATH=api/src api/.venv/bin/python scripts/run_eval_loop.py analyze \
@@ -144,7 +228,8 @@ PYTHONPATH=api/src api/.venv/bin/python scripts/run_eval_loop.py analyze \
   --output-dir /tmp/knowledge-browser-behavior
 ```
 
-Run a committed challenger from a clean worktree:
+After the contract, tests, challenger, and experiment manifest are committed in
+a clean worktree, run a fresh comparison:
 
 ```bash
 PYTHONPATH=api/src api/.venv/bin/python scripts/run_eval_loop.py evaluate \
@@ -152,8 +237,15 @@ PYTHONPATH=api/src api/.venv/bin/python scripts/run_eval_loop.py evaluate \
   --output-dir /tmp/knowledge-browser-runs/<id>
 ```
 
-The loop produces evidence for human review. It never promotes a search profile
-automatically.
+The runner rejects stale or empty evidence, an unchanged challenger, a
+non-`ALIGNED` intent audit, incomplete embeddings, a dirty worktree, mismatched
+input hashes, or an output directory that already exists. Baseline, challenger,
+and fast ACL checks share one read-only repeatable-read database snapshot.
+
+A passing development comparison can only recommend the separate release gate.
+The exhaustive full ACL check and human approval are still required before a
+profile is promoted. No evaluation command edits
+`search/profiles/released.json` automatically.
 
 ## Verification
 

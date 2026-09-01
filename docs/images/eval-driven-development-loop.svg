@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050" role="img" aria-labelledby="title desc">
+  <title id="title">Eval-driven development loop</title>
+  <desc id="desc">A lifecycle from recent search behavior through an external weekly report, measurable hypothesis, intent audit, committed challenger, fresh evaluation, fast ACL check, decision, exhaustive release gate, human approval, and optional promotion to the released profile.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <style>
+      .title { font: 700 38px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .step { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; letter-spacing: 1.3px; }
+      .heading { font: 700 23px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .body { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .small { font: 500 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .code { font: 700 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #0f172a; }
+      .line { stroke: #475569; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .blue-line { stroke: #2563eb; stroke-width: 4; fill: none; marker-end: url(#arrow-blue); }
+      .loop { stroke: #2563eb; stroke-width: 4; stroke-dasharray: 10 8; fill: none; marker-end: url(#arrow-blue); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1050" rx="30" fill="#f8fafc"/>
+  <text x="70" y="70" class="title">Eval-driven development loop</text>
+  <text x="70" y="106" class="subtitle">Behavior creates evidence; evidence justifies one challenger; a new comparison informs a human decision.</text>
+
+  <rect x="55" y="140" width="1490" height="255" rx="26" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="80" y="176" class="step">OBSERVE → UNDERSTAND → AUDIT</text>
+
+  <rect x="85" y="215" width="275" height="135" rx="20" fill="#ffffff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="110" y="250" class="step">1 · RECENT BEHAVIOR</text>
+  <text x="110" y="286" class="heading">Search signals</text>
+  <text x="110" y="318" class="small">clicks · no results · latency</text>
+  <text x="110" y="343" class="small">reformulations · repeated failures</text>
+
+  <path d="M 360 282 L 415 282" class="blue-line"/>
+
+  <rect x="415" y="215" width="275" height="135" rx="20" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+  <text x="440" y="250" class="step">2 · FRESH REPORT</text>
+  <text x="440" y="286" class="heading">Weekly evidence</text>
+  <text x="440" y="318" class="code">/tmp/.../weekly.json</text>
+  <text x="440" y="343" class="small">outside Git · synthetic profile excluded</text>
+
+  <path d="M 690 282 L 745 282" class="blue-line"/>
+
+  <rect x="745" y="205" width="325" height="155" rx="20" fill="#eef2ff" stroke="#6366f1" stroke-width="2"/>
+  <text x="770" y="240" class="step">3 · ONE HYPOTHESIS</text>
+  <text x="770" y="276" class="heading">Measurable change</text>
+  <text x="770" y="308" class="small">affected intent + target metric</text>
+  <text x="770" y="333" class="small">regression risk + anti-gaming reason</text>
+
+  <path d="M 1070 282 L 1125 282" class="blue-line"/>
+
+  <polygon points="1305,190 1480,282 1305,374 1130,282" fill="#fff7ed" stroke="#ea580c" stroke-width="3"/>
+  <text x="1305" y="247" class="step" text-anchor="middle">4 · PRODUCT INTENT</text>
+  <text x="1305" y="282" class="heading" text-anchor="middle">Intent audit</text>
+  <text x="1305" y="312" class="small" text-anchor="middle">ALIGNED?</text>
+
+  <rect x="1190" y="420" width="310" height="88" rx="18" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+  <text x="1345" y="454" class="heading" text-anchor="middle">Stop for direction</text>
+  <text x="1345" y="484" class="small" text-anchor="middle">UNCLEAR or DRIFT</text>
+  <path d="M 1390 350 L 1390 420" class="line"/>
+
+  <rect x="55" y="535" width="1490" height="270" rx="26" fill="#fffdf5" stroke="#d97706" stroke-width="2"/>
+  <text x="80" y="571" class="step">DEVELOP → RUN NEW EVAL → COMPARE</text>
+
+  <rect x="1000" y="610" width="400" height="145" rx="20" fill="#fff7ed" stroke="#f97316" stroke-width="3"/>
+  <text x="1025" y="645" class="step">5 · ALIGNED CHALLENGER</text>
+  <text x="1025" y="681" class="heading">Develop the change</text>
+  <text x="1025" y="713" class="small">new profile or search code · TDD</text>
+  <text x="1025" y="738" class="small">golden changes only with evidence</text>
+  <path d="M 1220 327 C 1100 410, 1100 520, 1200 610" class="blue-line"/>
+  <text x="1080" y="475" class="small">ALIGNED</text>
+
+  <path d="M 1000 682 L 930 682" class="line"/>
+
+  <rect x="590" y="600" width="340" height="165" rx="20" fill="#fffbeb" stroke="#f59e0b" stroke-width="3"/>
+  <text x="615" y="635" class="step">6 · FRESH EVALUATION</text>
+  <text x="615" y="671" class="heading">Baseline vs challenger</text>
+  <text x="615" y="703" class="code">run_eval_loop.py evaluate</text>
+  <text x="615" y="733" class="small">clean commit · new output · matching hashes</text>
+  <text x="615" y="758" class="small">old results cannot complete the loop</text>
+
+  <path d="M 590 682 L 520 682" class="line"/>
+
+  <rect x="100" y="590" width="420" height="185" rx="20" fill="#ffffff" stroke="#f59e0b" stroke-width="2"/>
+  <text x="125" y="625" class="step">7 · DEVELOPMENT EVIDENCE</text>
+  <text x="125" y="661" class="heading">Quality + safety</text>
+  <text x="125" y="695" class="small">Recall · nDCG · MRR · wins/losses</text>
+  <text x="125" y="722" class="small">forbidden results · intent regressions · latency</text>
+  <text x="125" y="749" class="small">fast ACL sample · fingerprints · fresh run</text>
+
+  <rect x="55" y="835" width="1490" height="160" rx="26" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="80" y="870" class="step">DECIDE → RELEASE GATE → LEARN AGAIN</text>
+
+  <polygon points="250,865 395,915 250,965 105,915" fill="#ffffff" stroke="#16a34a" stroke-width="3"/>
+  <text x="250" y="906" class="step" text-anchor="middle">8 · DECISION</text>
+  <text x="250" y="935" class="small" text-anchor="middle">quality gates pass?</text>
+  <path d="M 250 775 L 250 865" class="line"/>
+
+  <rect x="455" y="880" width="285" height="80" rx="18" fill="#ecfdf5" stroke="#16a34a" stroke-width="2"/>
+  <text x="598" y="913" class="heading" text-anchor="middle">Release gate</text>
+  <text x="598" y="942" class="small" text-anchor="middle">exhaustive full ACL · zero leaks</text>
+  <path d="M 395 915 L 455 915" class="blue-line"/>
+  <text x="425" y="899" class="small" text-anchor="middle">YES</text>
+
+  <rect x="800" y="880" width="250" height="80" rx="18" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="925" y="913" class="heading" text-anchor="middle">Human approval</text>
+  <text x="925" y="942" class="small" text-anchor="middle">required before promotion</text>
+  <path d="M 740 920 L 800 920" class="line"/>
+
+  <rect x="1110" y="880" width="260" height="80" rx="18" fill="#0f172a"/>
+  <text x="1240" y="913" style="font:700 23px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#fff" text-anchor="middle">Released profile</text>
+  <text x="1240" y="942" style="font:500 16px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#cbd5e1" text-anchor="middle">promotion → next behavior cycle</text>
+  <path d="M 1050 920 L 1110 920" class="line"/>
+
+  <rect x="85" y="1005" width="350" height="30" rx="15" fill="#fee2e2"/>
+  <text x="260" y="1026" class="small" text-anchor="middle">NO → reject or keep experimenting</text>
+  <path d="M 250 965 L 250 1005" class="line"/>
+
+  <rect x="445" y="1005" width="700" height="30" rx="15" fill="#e2e8f0"/>
+  <text x="795" y="1026" class="small" text-anchor="middle">Fast ACL is a development check, not release proof. No profile is promoted automatically.</text>
+</svg>
