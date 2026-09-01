@@ -218,6 +218,8 @@ def answer_question(
             ),
         }],
         tools=TOOLS,
+        tool_choice={"type": "function", "name": "read_chunk"}
+        if initial_results else "auto",
         instructions=instructions,
         parallel_tool_calls=False,
     )
@@ -353,6 +355,8 @@ def answer_question(
     citations = [
         _citation(citeable[chunk_id]) for chunk_id in citation_ids
     ]
+    if initial_results and payload.get("answer") and not citations:
+        raise AnswerExecutionError(execution(), trace)
     conflicts = []
     for conflict in payload.get("conflicts", []) if isinstance(payload.get("conflicts"), list) else []:
         if not isinstance(conflict, dict):
