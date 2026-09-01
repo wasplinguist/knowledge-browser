@@ -503,3 +503,33 @@ def test_read_chunk_returns_full_text_only_when_child_and_root_are_allowed(db):
     assert allowed["external_id"] == "COMPANY-1"
     assert hidden_root is None
     assert hidden_child is None
+
+
+@pytest.mark.integration
+def test_read_chunk_context_returns_same_field_siblings_with_selected_first(db):
+    company_user = UUID("00000000-0000-0000-0000-000000000001")
+    document_id = UUID("30000000-0000-0000-0000-000000000001")
+    db.execute(
+        """
+        INSERT INTO chunks (
+          source, id, document_id, field, text, chunk_index, content_hash
+        ) VALUES
+          ('jira', 'jira:COMPANY-1:1', %s, 'body', 'Root cause', 1, 'context-1'),
+          ('jira', 'jira:COMPANY-1:2', %s, 'body', 'Resolution', 2, 'context-2'),
+          ('jira', 'jira:COMPANY-1:title', %s, 'title', 'Title', 3, 'context-3')
+        """,
+        (document_id, document_id, document_id),
+    )
+
+    context = search_module.read_chunk_context(
+        db, company_user, "jira", "jira:COMPANY-1:1", limit=3
+    )
+
+    assert [item["chunk_id"] for item in context] == [
+        "jira:COMPANY-1:1",
+        "jira:COMPANY-1:0",
+        "jira:COMPANY-1:2",
+    ]
+    assert search_module.read_chunk_context(
+        db, company_user, "jira", "jira:VISIBLE-CHILD:0", limit=3
+    ) == []

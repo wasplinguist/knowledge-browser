@@ -76,7 +76,8 @@ def test_real_answer_path_opens_evidence_before_passing_rag_eval(monkeypatch):
     }
     monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [hit])
     monkeypatch.setattr(
-        answer_module, "read_chunk", lambda *_args: {**hit, "text": hit["excerpt"]}
+        answer_module, "read_chunk_context",
+        lambda *_args: [{**hit, "text": hit["excerpt"]}],
     )
     responses = iter([
         SimpleNamespace(
