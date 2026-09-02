@@ -13,6 +13,13 @@ import type {
   Source,
 } from './types'
 
+type FollowUp = {
+  id: number
+  question: string
+  result?: AnswerResponse
+  error?: string
+}
+
 const sources: Array<Source | 'all'> = ['all', 'confluence', 'jira', 'github', 'slack']
 const examples = [
   'What is the latest project update?',
@@ -51,6 +58,72 @@ function citationKey(citation: Citation) {
   return citation.source && citation.external_id
     ? `${citation.source}:${citation.external_id}`
     : citation.url || citation.chunk_id
+}
+
+function GroundedAnswer({
+  result,
+  onCitation,
+}: {
+  result: AnswerResponse
+  onCitation: (citation: Citation, button: HTMLButtonElement) => void
+}) {
+  const inlineCitation = (number: number) => {
+    const documents = uniqueCitations(result.citations)
+    const citation = result.citations[number - 1]
+    if (!citation?.source || !citation.external_id) return null
+    const documentIndex = documents.findIndex(
+      (document) => citationKey(document) === citationKey(citation),
+    )
+    const label = documentIndex < 0 ? number : documentIndex + 1
+    return <button
+      type="button"
+      className="inline-citation"
+      aria-label={`Citation ${label}: ${citation.title || citation.external_id}`}
+      onClick={(event) => onCitation(citation, event.currentTarget)}
+    >[{label}]</button>
+  }
+
+  return <>
+    {result.answer && <div className="answer-copy">
+      <ReactMarkdown
+        skipHtml
+        remarkPlugins={[citationLinks]}
+        components={{
+          a: ({ href, children }) => {
+            const citation = href?.match(/^#citation-(\d+)$/)
+            if (citation) return inlineCitation(Number(citation[1])) ?? <>{children}</>
+            return <a href={href} target="_blank" rel="noreferrer">{children}</a>
+          },
+          img: ({ alt }) => <span className="markdown-image-alt">{alt || 'Image'}</span>,
+        }}
+      >{result.answer}</ReactMarkdown>
+    </div>}
+    {!!result.conflicts?.length && <aside className="answer-note conflict">
+      <h3>Conflicting evidence</h3>
+      <ul>{result.conflicts.map((conflict, index) =>
+        <li key={index}>{conflict.description}</li>)}</ul>
+    </aside>}
+    {!!result.missing_information?.length && <aside className="answer-note">
+      <h3>Missing information</h3>
+      <ul>{result.missing_information.map((item, index) =>
+        <li key={index}>{item}</li>)}</ul>
+    </aside>}
+    {!!result.citations.length && <section className="citations" aria-label="Sources">
+      <h3>Sources</h3>
+      <div className="citation-list">{uniqueCitations(result.citations).map((citation, index) =>
+        <button
+          type="button"
+          className="citation"
+          key={citationKey(citation) || index}
+          onClick={(event) => onCitation(citation, event.currentTarget)}
+        >
+          <span className="citation-number">{index + 1}</span>
+          <span><strong>{citation.source ? sourceName(citation.source) : 'Source'}</strong>
+            <small>{[citation.external_id, citation.title].filter(Boolean).join(' · ') || 'Supporting evidence'}</small>
+          </span>
+        </button>)}</div>
+    </section>}
+  </>
 }
 
 type MarkdownNode = {
@@ -103,12 +176,16 @@ export default function App() {
   const [searchId, setSearchId] = useState<string | null>(null)
   const [answerResult, setAnswerResult] = useState<AnswerResponse | null>(null)
   const [answerError, setAnswerError] = useState('')
+  const [followUps, setFollowUps] = useState<FollowUp[]>([])
+  const [followUpQuestion, setFollowUpQuestion] = useState('')
+  const [followUpLoading, setFollowUpLoading] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [loading, setLoading] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
   const [selectedDocument, setSelectedDocument] = useState<DocumentSelection | null>(null)
   const selectedResult = useRef<HTMLButtonElement | null>(null)
   const requestId = useRef(0)
+  const followUpId = useRef(0)
   const [searchSessionId] = useState(() => {
     const key = 'knowledge-browser-session-id'
     const existing = localStorage.getItem(key)
@@ -133,6 +210,9 @@ export default function App() {
     setSearchId(null)
     setAnswerResult(null)
     setAnswerError('')
+    setFollowUps([])
+    setFollowUpQuestion('')
+    setFollowUpLoading(false)
     setSearchError('')
     setHasSearched(false)
     setLoading(false)
@@ -175,6 +255,38 @@ export default function App() {
     void runSearch()
   }
 
+  async function askFollowUp(question: string) {
+    const trimmed = question.trim()
+    if (!trimmed || !userId || followUpLoading) return
+    const id = ++followUpId.current
+    const activeRequest = requestId.current
+    setFollowUps((current) => [...current, { id, question: trimmed }])
+    setFollowUpQuestion('')
+    setFollowUpLoading(true)
+    try {
+      const value = await answer(trimmed, userId, source)
+      if (activeRequest !== requestId.current) return
+      setFollowUps((current) => current.map((entry) => entry.id === id
+        ? value.error || !value.answer
+          ? { ...entry, error: value.error?.message || 'AI answer is unavailable.' }
+          : { ...entry, result: value }
+        : entry))
+    } catch {
+      if (activeRequest === requestId.current) {
+        setFollowUps((current) => current.map((entry) => entry.id === id
+          ? { ...entry, error: 'AI answer is unavailable.' }
+          : entry))
+      }
+    } finally {
+      if (activeRequest === requestId.current) setFollowUpLoading(false)
+    }
+  }
+
+  function submitFollowUp(event: FormEvent) {
+    event.preventDefault()
+    void askFollowUp(followUpQuestion)
+  }
+
   function chooseSource(next: Source | 'all') {
     const value = next === 'all' ? undefined : next
     setSource(value)
@@ -191,25 +303,15 @@ export default function App() {
     selectedResult.current?.focus()
   }, [])
   const currentUser = users.find((user) => user.id === userId)
-  const inlineCitation = (number: number, citations: Citation[]) => {
-    const documents = uniqueCitations(citations)
-    const citation = citations[number - 1]
-    if (!citation?.source || !citation.external_id) return null
-    const documentIndex = documents.findIndex(
-      (document) => citationKey(document) === citationKey(citation),
-    )
-    const label = documentIndex < 0 ? number : documentIndex + 1
-    return <button
-      type="button"
-      className="inline-citation"
-      aria-label={`Citation ${label}: ${citation.title || citation.external_id}`}
-      onClick={(event) => openDocument({
-        source: citation.source!,
-        external_id: citation.external_id!,
-        title: citation.title || citation.external_id!,
-      }, event.currentTarget)}
-    >[{label}]</button>
+  const openCitation = (citation: Citation, button: HTMLButtonElement) => {
+    if (!citation.source || !citation.external_id) return
+    openDocument({
+      source: citation.source,
+      external_id: citation.external_id,
+      title: citation.title || citation.external_id,
+    }, button)
   }
+  const latestAnswer = followUps.at(-1)?.result || answerResult
 
   return <div className="shell">
     <header className="topbar">
@@ -265,63 +367,40 @@ export default function App() {
                   {evidenceLabels[answerResult.evidence_status]}
                 </span>}
               </div>
-              {answerResult?.answer && <div className="answer-copy">
-                <ReactMarkdown
-                  skipHtml
-                  remarkPlugins={[citationLinks]}
-                  components={{
-                    a: ({ href, children }) => {
-                      const citation = href?.match(/^#citation-(\d+)$/)
-                      if (citation) {
-                        return inlineCitation(Number(citation[1]), answerResult.citations) ?? <>{children}</>
-                      }
-                      return <a href={href} target="_blank" rel="noreferrer">{children}</a>
-                    },
-                    img: ({ alt }) => <span className="markdown-image-alt">{alt || 'Image'}</span>,
-                  }}
-                >{answerResult.answer}</ReactMarkdown>
-              </div>}
+              {answerResult && <GroundedAnswer result={answerResult} onCitation={openCitation} />}
               {!answerResult && !answerError && <p className="muted">Generating a grounded answer…</p>}
               {answerError && <p className="answer-error">{answerError}</p>}
-              {!!answerResult?.conflicts?.length && <aside className="answer-note conflict">
-                <h3>Conflicting evidence</h3>
-                <ul>{answerResult.conflicts.map((conflict, index) =>
-                  <li key={index}>{conflict.description}</li>)}</ul>
-              </aside>}
-              {!!answerResult?.missing_information?.length && <aside className="answer-note">
-                <h3>Missing information</h3>
-                <ul>{answerResult.missing_information.map((item, index) =>
-                  <li key={index}>{item}</li>)}</ul>
-              </aside>}
-              {!!answerResult?.citations.length && <section className="citations" aria-label="Sources">
-                <h3>Sources</h3>
-                <div className="citation-list">{uniqueCitations(answerResult.citations).map((citation, index) =>
-                  <button
-                    className="citation"
-                    key={citationKey(citation) || index}
-                    onClick={(event) => {
-                      if (citation.source && citation.external_id) {
-                        openDocument({
-                          source: citation.source,
-                          external_id: citation.external_id,
-                          title: citation.title || citation.external_id,
-                        }, event.currentTarget)
-                      }
-                    }}
-                  >
-                    <span className="citation-number">{index + 1}</span>
-                    <span><strong>{citation.source ? sourceName(citation.source) : 'Source'}</strong>
-                      <small>{[citation.external_id, citation.title].filter(Boolean).join(' · ') || 'Supporting evidence'}</small>
-                    </span>
-                  </button>)}</div>
-              </section>}
-              {!!answerResult?.follow_ups.length && <section className="suggestions" aria-label="Suggested follow-up questions">
+              {followUps.map((entry) => <section className="follow-up" key={entry.id} aria-label={`Follow-up: ${entry.question}`}>
+                <div className="follow-up-heading">
+                  <h3>{entry.question}</h3>
+                  {entry.result?.evidence_status && <span className={`evidence-state ${entry.result.evidence_status}`}>
+                    {evidenceLabels[entry.result.evidence_status]}
+                  </span>}
+                </div>
+                {!entry.result && !entry.error && <p className="muted" role="status">Generating a grounded answer…</p>}
+                {entry.result && <GroundedAnswer result={entry.result} onCitation={openCitation} />}
+                {entry.error && <p className="answer-error" role="alert">{entry.error}</p>}
+              </section>)}
+              {answerResult && <section className="ask-next" aria-label="Ask a follow-up question">
+                {!!latestAnswer?.follow_ups.length && <div className="suggestions" aria-label="Suggested follow-up questions">
                 <h3>Ask next</h3>
-                {answerResult.follow_ups.map((question) => <button
+                {latestAnswer.follow_ups.map((question) => <button
                   type="button"
                   key={question}
-                  onClick={() => { setQuery(question); clearResults() }}
+                  disabled={followUpLoading}
+                  onClick={() => void askFollowUp(question)}
                 >{question}</button>)}
+                </div>}
+                <form className="follow-up-form" onSubmit={submitFollowUp}>
+                  <input
+                    aria-label="Ask a follow-up question"
+                    placeholder="Ask anything else"
+                    value={followUpQuestion}
+                    disabled={followUpLoading}
+                    onChange={(event) => setFollowUpQuestion(event.target.value)}
+                  />
+                  <button type="submit" disabled={followUpLoading || !followUpQuestion.trim()}>Ask</button>
+                </form>
               </section>}
             </div>
           </section>

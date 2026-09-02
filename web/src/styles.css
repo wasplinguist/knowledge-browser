@@ -15,6 +15,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
 button, input, select { font: inherit; }
+button:disabled, input:disabled { cursor: not-allowed; opacity: 0.55; }
 button { cursor: pointer; }
 button:active { transform: scale(0.95); }
 button:focus-visible, input:focus-visible, select:focus-visible {
@@ -76,6 +77,14 @@ h3 { margin: 0 0 8px; font-size: 14px; line-height: 1.29; letter-spacing: -0.224
 .citation strong { color: var(--action); font-size: 14px; }
 .citation small { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .suggestions button { min-height: 44px; margin: 0 8px 8px 0; padding: 11px 22px; border: 1px solid var(--action); border-radius: 9999px; background: #fff; color: var(--action); }
+.follow-up { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--hairline); }
+.follow-up-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.follow-up-heading h3 { margin: 0; color: var(--action); font-size: 17px; }
+.follow-up .muted, .follow-up .answer-error { margin: 18px 0 0; }
+.ask-next { margin-top: 28px; }
+.follow-up-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-top: 16px; }
+.follow-up-form input { min-width: 0; min-height: 48px; padding: 11px 16px; border: 1px solid var(--hairline); border-radius: 12px; }
+.follow-up-form button { min-width: 76px; min-height: 48px; padding: 11px 18px; border: 0; border-radius: 12px; background: var(--action); color: #fff; }
 .result-count { margin: 32px 0 3px; color: #6e6e73; font-size: 14px; }
 .result { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 13px; padding: 18px 2px; border-bottom: 1px solid #eee; }
 .source-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 8px; background: var(--parchment); color: var(--action); font-weight: 600; }
@@ -122,6 +131,7 @@ footer { padding: 32px clamp(18px, 5vw, 72px); border-top: 1px solid var(--hairl
 
 @media (max-width: 419px) {
   .empty h1 { font-size: 28px; }
+  .follow-up-form { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 700px) {
