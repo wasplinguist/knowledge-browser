@@ -341,12 +341,13 @@ def verify_redwood(
         ] + [
             row[4] for row in representatives.values() if row
         ]
-        embeddings = create_embeddings(
-            embedding_client,
-            embedding_texts,
-            profile.embedding_model,
-        )
+    embeddings = create_embeddings(
+        embedding_client,
+        embedding_texts,
+        profile.embedding_model,
+    )
 
+    with connection_factory() as conn:
         found = 0
         reciprocal_ranks = []
         latencies = []

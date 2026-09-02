@@ -13,8 +13,10 @@ from knowledge_browser.bulk_state import (
     BulkStateError,
     Progress,
     assert_redwood_database,
+    configure_run,
     load_progress,
     reset_redwood_database,
+    record_run_metrics,
     save_progress,
     start_or_resume_run,
     touch_run,
@@ -431,6 +433,36 @@ def test_touch_run_refreshes_the_stall_heartbeat(db, run):
         "SELECT updated_at > '2000-01-01' FROM bulk_import_runs WHERE id = %s",
         (run.id,),
     ).fetchone() == (True,)
+
+
+def test_run_configuration_and_metrics_are_saved_for_status(db, run):
+    configure_run(
+        db,
+        run.id,
+        request_concurrency=8,
+        stall_after_seconds=128.0,
+    )
+    record_run_metrics(
+        db,
+        run.id,
+        cache_hits=5,
+        cache_misses=6,
+        provider_requests=7,
+        request_concurrency=8,
+        retries=1,
+        sentences_per_second=9.5,
+        estimated_remaining_seconds=10.5,
+    )
+
+    assert db.execute(
+        """
+        SELECT cache_hits, cache_misses, provider_requests,
+               request_concurrency, retries, sentences_per_second,
+               estimated_remaining_seconds, stall_after_seconds
+        FROM bulk_import_runs WHERE id = %s
+        """,
+        (run.id,),
+    ).fetchone() == (5, 6, 7, 8, 1, 9.5, 10.5, 128.0)
 
 
 def test_progress_and_rows_rollback_together(db, run):

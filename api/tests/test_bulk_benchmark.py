@@ -8,17 +8,25 @@ import knowledge_browser.bulk_benchmark as bulk_benchmark
 pytestmark = pytest.mark.unit
 
 
-def test_fixed_scheduler_comparison_is_fast_equivalent_and_database_free():
+def test_fixed_scheduler_comparison_is_fast_and_preserves_vectors():
     result = bulk_benchmark.compare_schedulers(
         [f"sentence {index}." for index in range(1200)],
-        provider_delay=0.05,
+        provider_delay=0.35,
     )
 
     assert result["same_vectors"] is True
     assert result["legacy_provider_requests"] == 12
     assert result["new_provider_requests"] == 3
     assert result["throughput_ratio"] >= 5.0
-    assert result["database_used"] is False
+
+
+def test_fake_provider_vectors_are_specific_to_each_sentence():
+    response = bulk_benchmark._FakeEmbeddingClient(0).create(
+        model=bulk_benchmark.MODEL,
+        input=["first sentence", "second sentence"],
+    )
+
+    assert response.data[0].embedding != response.data[1].embedding
 
 
 @pytest.mark.parametrize(

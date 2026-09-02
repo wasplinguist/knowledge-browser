@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from itertools import islice
 import json
 from pathlib import Path
@@ -26,7 +27,6 @@ from .embedding_index import (
 MODEL = "text-embedding-3-small"
 MEMORY_LIMIT_BYTES = 2 * 1024**3
 MINIMUM_THROUGHPUT_RATIO = 5.0
-VECTOR = [0.0] * 1536
 
 
 class _FakeEmbeddingClient:
@@ -46,13 +46,23 @@ class _FakeEmbeddingClient:
             self.requests += 1
         return SimpleNamespace(
             data=[
-                SimpleNamespace(index=index, embedding=VECTOR)
-                for index, _ in enumerate(input)
+                SimpleNamespace(
+                    index=index,
+                    embedding=[
+                        int.from_bytes(
+                            hashlib.sha256(text.encode()).digest()[:4],
+                            "big",
+                        )
+                        / 2**32
+                    ]
+                    * 1536,
+                )
+                for index, text in enumerate(input)
             ]
         )
 
 
-def compare_schedulers(sentences, *, provider_delay=0.25):
+def compare_schedulers(sentences, *, provider_delay=0.35):
     unique = list(dict.fromkeys(sentences))
 
     legacy_client = _FakeEmbeddingClient(provider_delay)
@@ -74,7 +84,6 @@ def compare_schedulers(sentences, *, provider_delay=0.25):
     new_seconds = time.perf_counter() - started
 
     return {
-        "database_used": False,
         "legacy_provider_requests": legacy_client.requests,
         "legacy_seconds": legacy_seconds,
         "new_provider_requests": new_client.requests,
@@ -102,7 +111,7 @@ def _line_offset(path: Path, line_number: int) -> int:
 
 def run_benchmark(
     *, data, source="slack", start_line=801, documents=200,
-    provider_delay=0.25
+    provider_delay=0.35
 ):
     if documents < 1:
         raise ValueError("documents must be positive")
@@ -152,7 +161,7 @@ def _parser():
     parser.add_argument("--source", choices=SOURCES, default="slack")
     parser.add_argument("--start-line", type=int, default=801)
     parser.add_argument("--documents", type=int, default=200)
-    parser.add_argument("--provider-delay", type=float, default=0.25)
+    parser.add_argument("--provider-delay", type=float, default=0.35)
     return parser
 
 

@@ -28,6 +28,9 @@ never changed.
   resumable batch design, and the throughput architecture that moves provider
   latency outside transactions, uses bounded concurrency and token-aware
   requests, and bulk-persists embedding cache rows.
+- The current 200-document Slack slice produced 9,077 identical ordered
+  sentence/vector results at 5.26x legacy throughput with 872,742,912 bytes of
+  peak memory, below the 2 GB gate.
 
 ## Scope
 

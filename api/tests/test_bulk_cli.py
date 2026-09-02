@@ -342,6 +342,14 @@ class _StatusConnection:
                     1536,
                     12.5,
                     self.updated_age,
+                    5,
+                    6,
+                    7,
+                    8,
+                    1,
+                    9.5,
+                    10.5,
+                    150.0,
                 )
             )
         return _StatusRows(rows=(("jira", 42, 10, 20, 30),))
@@ -366,7 +374,10 @@ def test_status_prints_safe_manifest_identity_without_embedding_client(
     assert capsys.readouterr().out.splitlines() == [
         "run=run-1 status=running dataset_version=redwood-v1 "
         "manifest_digest=abc123 embedding_model=text-embedding-3-small "
-        "dimensions=1536 elapsed_seconds=12.50",
+        "dimensions=1536 cache_hits=5 cache_misses=6 "
+        "provider_requests=7 concurrency=8 retries=1 "
+        "sentences_per_second=9.50 estimated_remaining_seconds=10.50 "
+        "elapsed_seconds=12.50",
         "source=jira next_line=42 documents=10 chunks=20 sentences=30",
     ]
 

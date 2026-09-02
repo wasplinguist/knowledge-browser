@@ -38,7 +38,6 @@ SAFE_ERRORS = {
     "embedding_provider_invalid_response",
     "missing_api_key",
 }
-STALL_AFTER_SECONDS = 150.0
 FAILURES = {
     "invalid_manifest": (
         "Redwood command failed: reason=invalid_manifest; "
@@ -164,9 +163,6 @@ def _parser():
         "--document-batch-size", type=_bounded_int("document batch size"), default=100
     )
     run.add_argument(
-        "--embedding-batch-size", type=_bounded_int("embedding batch size"), default=100
-    )
-    run.add_argument(
         "--work-window-size", type=_bounded_int("work window size"), default=200
     )
     run.add_argument(
@@ -243,8 +239,16 @@ def _print_status(url):
             SELECT id, status, safe_error, dataset_version, manifest_digest,
                    embedding_model, embedding_dimensions,
                    EXTRACT(EPOCH FROM (pg_catalog.now() - started_at)),
-                   EXTRACT(EPOCH FROM (pg_catalog.now() - updated_at))
-            FROM public.bulk_import_runs
+                   EXTRACT(EPOCH FROM (pg_catalog.now() - updated_at)),
+                   COALESCE((to_jsonb(runs)->>'cache_hits')::bigint, 0),
+                   COALESCE((to_jsonb(runs)->>'cache_misses')::bigint, 0),
+                   COALESCE((to_jsonb(runs)->>'provider_requests')::bigint, 0),
+                   COALESCE((to_jsonb(runs)->>'request_concurrency')::integer, 0),
+                   COALESCE((to_jsonb(runs)->>'retries')::bigint, 0),
+                   COALESCE((to_jsonb(runs)->>'sentences_per_second')::float, 0),
+                   COALESCE((to_jsonb(runs)->>'estimated_remaining_seconds')::float, 0),
+                   COALESCE((to_jsonb(runs)->>'stall_after_seconds')::float, 150)
+            FROM public.bulk_import_runs AS runs
             ORDER BY started_at DESC
             LIMIT 1
             """
@@ -262,11 +266,19 @@ def _print_status(url):
             dimensions,
             elapsed,
             updated_age,
+            cache_hits,
+            cache_misses,
+            provider_requests,
+            concurrency,
+            retries,
+            sentences_per_second,
+            estimated_remaining_seconds,
+            stall_after_seconds,
         ) = run
         if status == "loading":
             status = (
                 "stalled"
-                if float(updated_age) > STALL_AFTER_SECONDS
+                if float(updated_age) > float(stall_after_seconds)
                 else "running"
             )
         safe_error = safe_error if safe_error in SAFE_ERRORS else None
@@ -274,7 +286,11 @@ def _print_status(url):
         print(
             f"run={run_id} status={status} dataset_version={dataset_version} "
             f"manifest_digest={manifest_digest} embedding_model={embedding_model} "
-            f"dimensions={dimensions} "
+            f"dimensions={dimensions} cache_hits={cache_hits} "
+            f"cache_misses={cache_misses} provider_requests={provider_requests} "
+            f"concurrency={concurrency} retries={retries} "
+            f"sentences_per_second={float(sentences_per_second):.2f} "
+            f"estimated_remaining_seconds={float(estimated_remaining_seconds):.2f} "
             f"elapsed_seconds={float(elapsed):.2f}{suffix}"
         )
         progress = conn.execute(
@@ -345,7 +361,6 @@ def main(argv=None):
                 dataset,
                 _openai_client,
                 document_batch_size=args.document_batch_size,
-                embedding_batch_size=args.embedding_batch_size,
                 work_window_size=args.work_window_size,
                 request_config=request_config,
                 progress_callback=_print_batch,

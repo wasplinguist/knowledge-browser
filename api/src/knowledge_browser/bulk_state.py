@@ -254,3 +254,59 @@ def touch_run(conn, run_id) -> None:
     )
     if result.rowcount != 1:
         raise BulkStateError("bulk import run is missing")
+
+
+def configure_run(
+    conn, run_id, *, request_concurrency, stall_after_seconds
+) -> None:
+    result = conn.execute(
+        """
+        UPDATE public.bulk_import_runs
+        SET request_concurrency = %s, stall_after_seconds = %s,
+            updated_at = pg_catalog.now()
+        WHERE id = %s
+        """,
+        (request_concurrency, stall_after_seconds, run_id),
+    )
+    if result.rowcount != 1:
+        raise BulkStateError("bulk import run is missing")
+
+
+def record_run_metrics(
+    conn,
+    run_id,
+    *,
+    cache_hits,
+    cache_misses,
+    provider_requests,
+    request_concurrency,
+    retries,
+    sentences_per_second,
+    estimated_remaining_seconds,
+) -> None:
+    result = conn.execute(
+        """
+        UPDATE public.bulk_import_runs
+        SET cache_hits = cache_hits + %s,
+            cache_misses = cache_misses + %s,
+            provider_requests = provider_requests + %s,
+            request_concurrency = GREATEST(request_concurrency, %s),
+            retries = retries + %s,
+            sentences_per_second = %s,
+            estimated_remaining_seconds = %s,
+            updated_at = pg_catalog.now()
+        WHERE id = %s
+        """,
+        (
+            cache_hits,
+            cache_misses,
+            provider_requests,
+            request_concurrency,
+            retries,
+            sentences_per_second,
+            estimated_remaining_seconds,
+            run_id,
+        ),
+    )
+    if result.rowcount != 1:
+        raise BulkStateError("bulk import run is missing")

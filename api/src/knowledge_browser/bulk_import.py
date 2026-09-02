@@ -8,7 +8,9 @@ from time import monotonic
 from uuid import UUID
 
 from .bulk_state import (
+    configure_run,
     load_progress,
+    record_run_metrics,
     save_progress,
     start_or_resume_run,
     touch_run,
@@ -23,6 +25,8 @@ from .db_compat import check_compatibility
 from .embedding_index import (
     EmbeddingRequestConfig,
     EmbeddingRequestResult,
+    MAX_PROVIDER_REQUESTS,
+    MAX_RETRY_DELAY,
     collect_sentences,
     load_cached_embeddings,
     persist_embeddings,
@@ -162,6 +166,15 @@ def run_import(
                     return ImportResult(run.id, True, ())
                 with conn.transaction():
                     _set_run_state(conn, run.id, "loading")
+                    configure_run(
+                        conn,
+                        run.id,
+                        request_concurrency=request_config.concurrency,
+                        stall_after_seconds=(
+                            request_config.total_timeout
+                            + MAX_RETRY_DELAY * (MAX_PROVIDER_REQUESTS - 1)
+                        ),
+                    )
                     identities = import_identities(conn, dataset.context)
 
                 reports = []
@@ -275,6 +288,22 @@ def run_import(
                                     else 0.0
                                 ),
                             )
+                            with conn.transaction():
+                                record_run_metrics(
+                                    conn,
+                                    run.id,
+                                    cache_hits=report.cache_hits,
+                                    cache_misses=report.cache_misses,
+                                    provider_requests=report.provider_calls,
+                                    request_concurrency=report.concurrency,
+                                    retries=report.retries,
+                                    sentences_per_second=(
+                                        report.sentences_per_second
+                                    ),
+                                    estimated_remaining_seconds=(
+                                        report.estimated_remaining_seconds
+                                    ),
+                                )
                             first_batch = False
                             if progress_callback is not None:
                                 progress_callback(report)

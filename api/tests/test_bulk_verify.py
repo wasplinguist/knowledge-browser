@@ -354,6 +354,41 @@ def test_verify_blocks_unknown_user_and_scores_unchanged_qa(
     ]
 
 
+def test_verify_closes_database_transaction_before_provider_call(
+    tmp_path, clean_database_url
+):
+    data_dir = _verification_data(tmp_path)
+    base_factory = _verification_database(clean_database_url, data_dir)
+    importer_pids = []
+    observed_states = []
+
+    def tracked_factory():
+        conn = base_factory()
+        importer_pids.append(conn.info.backend_pid)
+        return conn
+
+    class TransactionCheckingClient(FakeEmbeddingClient):
+        def create(self, *, model, input):
+            with psycopg.connect(clean_database_url) as observer:
+                observed_states.extend(
+                    row[0]
+                    for row in observer.execute(
+                        "SELECT state FROM pg_stat_activity WHERE pid = ANY(%s)",
+                        (importer_pids,),
+                    )
+                )
+            return super().create(model=model, input=input)
+
+    verify_redwood(
+        tracked_factory,
+        data_dir,
+        TransactionCheckingClient(),
+        load_profile(RELEASED),
+    )
+
+    assert observed_states == []
+
+
 def test_verify_acl_probes_use_released_hybrid_search(
     tmp_path, clean_database_url, monkeypatch
 ):

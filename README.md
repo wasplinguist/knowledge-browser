@@ -119,7 +119,8 @@ PYTHONPATH=api/src api/.venv/bin/python -m knowledge_browser.bulk_benchmark \
 
 It exits with an error below 5x legacy throughput, at 2 GB memory, or when the
 old and new sentence/vector results differ. It prints one JSON object and does
-not write a report file.
+not write a report file. The normal import tests separately prove that provider
+calls leave no transaction open and that a stopped run reuses cached work.
 
 `reset` first validates the complete dataset and then requires `--yes`. It
 refuses every database name except `knowledge_redwood`. The import saves each

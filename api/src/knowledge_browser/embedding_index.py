@@ -10,7 +10,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from itertools import batched
-from threading import Event
+from threading import Event, Thread
 
 import httpx
 from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimitError
@@ -21,6 +21,7 @@ MAX_EMBEDDING_INPUTS = 2048
 MAX_ESTIMATED_TOKENS = 300_000
 MAX_PROVIDER_REQUESTS = 5
 MAX_RETRY_DELAY = 2.0
+_hard_clock = time.monotonic
 
 
 class EmbeddingProviderError(RuntimeError):
@@ -233,7 +234,6 @@ def _request_batch(client, model, batch, config, cancelled):
             raise CancelledError
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            cancelled.set()
             raise EmbeddingProviderError(
                 "embedding provider unavailable after retries"
             )
@@ -250,25 +250,53 @@ def _request_batch(client, model, batch, config, cancelled):
             return vectors, attempt + 1
         except Exception as error:
             if isinstance(error, EmbeddingProviderError):
-                cancelled.set()
                 raise
             if not _transient(error):
-                cancelled.set()
                 raise
             if attempt == MAX_PROVIDER_REQUESTS - 1:
-                cancelled.set()
                 raise EmbeddingProviderError(
                     "embedding provider unavailable after retries"
                 ) from error
             delay = _retry_delay(error, attempt)
             if delay >= deadline - time.monotonic():
-                cancelled.set()
                 raise EmbeddingProviderError(
                     "embedding provider unavailable after retries"
                 ) from error
             if _wait_for_retry(cancelled, delay):
                 raise CancelledError
     raise AssertionError("unreachable")
+
+
+def _watched_request_batch(client, model, batch, config, cancelled):
+    finished = Event()
+    result = []
+
+    def request():
+        try:
+            result.append(
+                (True, _request_batch(client, model, batch, config, cancelled))
+            )
+        except BaseException as error:
+            result.append((False, error))
+            finished.set()
+            cancelled.set()
+        finally:
+            finished.set()
+
+    Thread(target=request, daemon=True).start()
+    deadline = _hard_clock() + config.total_timeout
+    while not finished.wait(min(0.01, max(deadline - _hard_clock(), 0))):
+        if cancelled.is_set():
+            raise CancelledError
+        if _hard_clock() >= deadline:
+            cancelled.set()
+            raise EmbeddingProviderError(
+                "embedding provider exceeded total timeout"
+            )
+    succeeded, value = result[0]
+    if succeeded:
+        return value
+    raise value
 
 
 def request_missing_embeddings(
@@ -286,7 +314,7 @@ def request_missing_embeddings(
     executor = ThreadPoolExecutor(max_workers=config.concurrency)
     futures = {
         executor.submit(
-            _request_batch, client, model, batch, config, cancelled
+            _watched_request_batch, client, model, batch, config, cancelled
         ): index
         for index, batch in enumerate(batches)
     }
@@ -425,6 +453,7 @@ def persist_embeddings(conn, run, vectors: dict[str, str]) -> None:
              AND cache.content_hash = stage.content_hash
             WHERE cache.content_hash IS NULL
                OR cache.sentence IS DISTINCT FROM stage.sentence
+               OR cache.embedding IS DISTINCT FROM stage.embedding_text::halfvec
         )
         """,
         (run.id,),

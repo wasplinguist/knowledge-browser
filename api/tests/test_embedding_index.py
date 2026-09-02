@@ -499,3 +499,24 @@ def test_scheduler_clamps_sdk_timeouts_to_the_batch_total_deadline(monkeypatch):
     assert max(
         timeout.connect, timeout.read, timeout.write, timeout.pool
     ) == pytest.approx(0.04)
+
+
+def test_scheduler_hard_deadline_does_not_wait_for_a_stuck_transport():
+    release = Event()
+
+    def stuck_response(texts):
+        release.wait(1.0)
+        return _response(texts)
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(EmbeddingProviderError, match="total timeout"):
+            request_missing_embeddings(
+                FakeEmbeddingClient(stuck_response),
+                MODEL,
+                ["text"],
+                _config(total_timeout=0.05),
+            )
+        assert time.monotonic() - started < 0.25
+    finally:
+        release.set()

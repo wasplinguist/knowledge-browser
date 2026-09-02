@@ -228,6 +228,15 @@ def test_bulk_cache_rejects_hash_collision_set_wide(db, run, monkeypatch):
         persist_embeddings(db, run, {"different sentence": vector})
 
 
+def test_bulk_cache_rejects_a_different_vector_for_the_same_sentence(db, run):
+    first = "[" + ",".join(["0"] * 1536) + "]"
+    changed = "[" + ",".join(["1"] * 1536) + "]"
+    persist_embeddings(db, run, {"same sentence": first})
+
+    with pytest.raises(ValueError, match="embedding cache hash collision"):
+        persist_embeddings(db, run, {"same sentence": changed})
+
+
 def test_document_batch_is_idempotent_and_rejects_changed_chunk_content(
     db, run, tiny_dataset
 ):
