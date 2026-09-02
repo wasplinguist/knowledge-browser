@@ -1,6 +1,8 @@
 import time
 from dataclasses import replace
-from threading import Lock
+from datetime import datetime, timezone
+from email.utils import format_datetime
+from threading import Event, Lock
 from types import SimpleNamespace
 
 import httpx
@@ -305,7 +307,9 @@ def test_scheduler_retries_only_transient_failures(monkeypatch, first_error):
             raise first_error
         return _response(texts)
 
-    monkeypatch.setattr("knowledge_browser.embedding_index.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "knowledge_browser.embedding_index._wait_for_retry", lambda *_: False
+    )
     result = request_missing_embeddings(
         FakeEmbeddingClient(fail_once), MODEL, ["text"], _config()
     )
@@ -315,7 +319,11 @@ def test_scheduler_retries_only_transient_failures(monkeypatch, first_error):
     assert result.retries == 1
 
 
-def test_scheduler_honors_retry_after(monkeypatch):
+@pytest.mark.parametrize(
+    ("retry_after", "expected_delay"),
+    [("0.75", 0.75), ("100", 2.0)],
+)
+def test_scheduler_honors_retry_after(monkeypatch, retry_after, expected_delay):
     attempts = 0
     delays = []
 
@@ -323,18 +331,48 @@ def test_scheduler_honors_retry_after(monkeypatch):
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            raise _status_error(429, retry_after="0.75")
+            raise _status_error(429, retry_after=retry_after)
         return _response(texts)
 
     monkeypatch.setattr("knowledge_browser.embedding_index.random.uniform", lambda *_: 0)
-    monkeypatch.setattr("knowledge_browser.embedding_index.time.sleep", delays.append)
+    monkeypatch.setattr(
+        "knowledge_browser.embedding_index._wait_for_retry",
+        lambda _event, delay: delays.append(delay) or False,
+    )
     result = request_missing_embeddings(
         FakeEmbeddingClient(rate_limited_once), MODEL, ["text"], _config()
     )
 
-    assert delays == [0.75]
+    assert delays == [expected_delay]
     assert result.provider_requests == 2
     assert result.retries == 1
+
+
+def test_scheduler_honors_http_date_retry_after(monkeypatch):
+    attempts = 0
+    delays = []
+    retry_after = format_datetime(
+        datetime.fromtimestamp(1_001, tz=timezone.utc), usegmt=True
+    )
+
+    def rate_limited_once(texts):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise _status_error(429, retry_after=retry_after)
+        return _response(texts)
+
+    monkeypatch.setattr("knowledge_browser.embedding_index.time.time", lambda: 1_000)
+    monkeypatch.setattr("knowledge_browser.embedding_index.random.uniform", lambda *_: 0)
+    monkeypatch.setattr(
+        "knowledge_browser.embedding_index._wait_for_retry",
+        lambda _event, delay: delays.append(delay) or False,
+    )
+    request_missing_embeddings(
+        FakeEmbeddingClient(rate_limited_once), MODEL, ["text"], _config()
+    )
+
+    assert delays == [1.0]
 
 
 def test_scheduler_stops_after_five_real_requests(monkeypatch):
@@ -345,7 +383,9 @@ def test_scheduler_stops_after_five_real_requests(monkeypatch):
         attempts += 1
         raise TimeoutError("timed out")
 
-    monkeypatch.setattr("knowledge_browser.embedding_index.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "knowledge_browser.embedding_index._wait_for_retry", lambda *_: False
+    )
     with pytest.raises(EmbeddingProviderError, match="unavailable after retries"):
         request_missing_embeddings(
             FakeEmbeddingClient(always_times_out), MODEL, ["text"], _config()
@@ -363,8 +403,8 @@ def test_scheduler_does_not_retry_terminal_provider_errors(monkeypatch):
         raise _status_error(400)
 
     monkeypatch.setattr(
-        "knowledge_browser.embedding_index.time.sleep",
-        lambda _: pytest.fail("terminal errors must not back off"),
+        "knowledge_browser.embedding_index._wait_for_retry",
+        lambda *_: pytest.fail("terminal errors must not back off"),
     )
     with pytest.raises(APIStatusError):
         request_missing_embeddings(
@@ -390,6 +430,29 @@ def test_scheduler_cancels_queued_batches_after_terminal_invalid_response():
     assert client.inputs == [("first",)]
 
 
+def test_scheduler_interrupts_retry_backoff_after_terminal_invalid_response():
+    retry_started = Event()
+
+    def coordinated_response(texts):
+        if texts == ("retry",):
+            retry_started.set()
+            raise TimeoutError("retry later")
+        assert retry_started.wait(1.0)
+        time.sleep(0.02)
+        return _response(texts, indexes=[1])
+
+    started = time.monotonic()
+    with pytest.raises(ValueError, match="invalid indexes"):
+        request_missing_embeddings(
+            FakeEmbeddingClient(coordinated_response),
+            MODEL,
+            ["retry", "invalid"],
+            _config(concurrency=2, max_inputs=1),
+        )
+
+    assert time.monotonic() - started < 0.15
+
+
 def test_scheduler_disables_sdk_retries_and_sets_explicit_timeouts():
     client = FakeEmbeddingClient()
 
@@ -404,3 +467,20 @@ def test_scheduler_disables_sdk_retries_and_sets_explicit_timeouts():
         3.0,
         1.0,
     )
+
+
+def test_scheduler_clamps_sdk_timeouts_to_the_batch_total_deadline(monkeypatch):
+    client = FakeEmbeddingClient()
+    moments = iter([100.0, 100.01, 100.02])
+    monkeypatch.setattr(
+        "knowledge_browser.embedding_index.time.monotonic", lambda: next(moments)
+    )
+
+    request_missing_embeddings(
+        client, MODEL, ["text"], _config(total_timeout=0.05)
+    )
+
+    timeout = client.options[0]["timeout"]
+    assert max(
+        timeout.connect, timeout.read, timeout.write, timeout.pool
+    ) == pytest.approx(0.04)

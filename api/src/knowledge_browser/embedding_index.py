@@ -8,6 +8,7 @@ import time
 from collections.abc import Sequence
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from itertools import batched
 from threading import Event
 
@@ -181,7 +182,10 @@ def _retry_after(error: Exception) -> float | None:
     try:
         delay = float(value)
     except ValueError:
-        return None
+        try:
+            delay = parsedate_to_datetime(value).timestamp() - time.time()
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return None
     if delay < 0 or not math.isfinite(delay):
         return None
     return min(delay, MAX_RETRY_DELAY)
@@ -193,18 +197,27 @@ def _retry_delay(error: Exception, attempt: int) -> float:
     return max(backoff, _retry_after(error) or 0.0)
 
 
-def _configured_client(client, config: EmbeddingRequestConfig):
+def _wait_for_retry(cancelled: Event, delay: float) -> bool:
+    return cancelled.wait(delay)
+
+
+def _configured_client(
+    client, config: EmbeddingRequestConfig, remaining: float
+):
     with_options = getattr(client, "with_options", None)
     if not callable(with_options):
         return client
+    connect_timeout = min(config.connect_timeout, remaining)
+    read_timeout = min(config.read_timeout, remaining)
+    write_timeout = min(config.write_timeout, remaining)
     return with_options(
         max_retries=0,
         timeout=httpx.Timeout(
-            config.read_timeout,
-            connect=config.connect_timeout,
-            read=config.read_timeout,
-            write=config.write_timeout,
-            pool=config.connect_timeout,
+            read_timeout,
+            connect=connect_timeout,
+            read=read_timeout,
+            write=write_timeout,
+            pool=connect_timeout,
         ),
     )
 
@@ -214,13 +227,15 @@ def _request_batch(client, model, batch, config, cancelled):
     for attempt in range(MAX_PROVIDER_REQUESTS):
         if cancelled.is_set():
             raise CancelledError
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             cancelled.set()
             raise EmbeddingProviderError(
                 "embedding provider unavailable after retries"
             )
         try:
-            response = client.embeddings.create(model=model, input=batch)
+            request_client = _configured_client(client, config, remaining)
+            response = request_client.embeddings.create(model=model, input=batch)
             if time.monotonic() > deadline:
                 raise EmbeddingProviderError(
                     "embedding provider exceeded total timeout"
@@ -247,7 +262,8 @@ def _request_batch(client, model, batch, config, cancelled):
                 raise EmbeddingProviderError(
                     "embedding provider unavailable after retries"
                 ) from error
-            time.sleep(delay)
+            if _wait_for_retry(cancelled, delay):
+                raise CancelledError
     raise AssertionError("unreachable")
 
 
@@ -262,12 +278,11 @@ def request_missing_embeddings(
     if not batches:
         return EmbeddingRequestResult({}, 0, 0, config.concurrency)
 
-    configured_client = _configured_client(client, config)
     cancelled = Event()
     executor = ThreadPoolExecutor(max_workers=config.concurrency)
     futures = {
         executor.submit(
-            _request_batch, configured_client, model, batch, config, cancelled
+            _request_batch, client, model, batch, config, cancelled
         ): index
         for index, batch in enumerate(batches)
     }
