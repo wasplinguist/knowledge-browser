@@ -354,6 +354,58 @@ def test_verify_blocks_unknown_user_and_scores_unchanged_qa(
     ]
 
 
+def test_verify_skips_retrieval_scoring_for_removed_expected_documents(
+    tmp_path, clean_database_url
+):
+    data_dir = _verification_data(tmp_path)
+    questions = [
+        json.loads(line)
+        for line in (data_dir / "qa.jsonl").read_text().splitlines()
+    ]
+    questions[1]["expected_doc_ids"] = []
+    (data_dir / "qa.jsonl").write_text(
+        "".join(json.dumps(question) + "\n" for question in questions)
+    )
+
+    report = verify_redwood(
+        _verification_database(clean_database_url, data_dir),
+        data_dir,
+        FakeEmbeddingClient(),
+        load_profile(RELEASED),
+    )
+
+    assert report.compatible is True
+    assert report.recall_at_10 == 1.0
+    assert report.mrr == 1.0
+
+
+def test_qa_user_can_belong_to_any_required_group(clean_database_url):
+    with psycopg.connect(clean_database_url) as conn:
+        _seed(conn)
+        conn.execute(
+            """
+            UPDATE groups
+            SET raw_payload = '{"acl_group_id": "security"}'
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO groups (id, name, raw_payload)
+            VALUES (
+              '10000000-0000-0000-0000-000000000002',
+              'workplace',
+              '{"acl_group_id": "workplace"}'
+            )
+            """
+        )
+
+        user_id = bulk_verify_module._qa_user(
+            conn, ["security", "workplace"]
+        )
+
+    assert str(user_id) == "00000000-0000-0000-0000-000000000003"
+
+
 def test_verify_closes_database_transaction_before_provider_call(
     tmp_path, clean_database_url
 ):

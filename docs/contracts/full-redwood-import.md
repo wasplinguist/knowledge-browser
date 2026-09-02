@@ -16,10 +16,9 @@ never changed.
 - The current manifest contains 13,214 artifacts, including 4,182 Slack
   records, and has digest
   `5ca6db71698f7e496696313feb427df011f051a9eecd2cb8d882afec5ed0e753`.
-- The existing isolated database still has an older, incompatible manifest
-  checkpoint at 800 Slack documents, 41,914 chunks, and 70,252 sentences. It
-  remains preserved until the operator explicitly replaces it for the new
-  smaller manifest.
+- The user authorized replacing the incompatible older checkpoint. The
+  isolated database now contains the complete current manifest: 13,214
+  documents, 398,919 chunks, and 1,062,078 sentences.
 - The existing importer reads every JSONL file, parsed document, unique
   sentence, and embedding into memory before one large transaction.
 - A 100-document Redwood pilot loaded successfully into the isolated
@@ -31,6 +30,12 @@ never changed.
 - The current 200-document Slack slice produced 9,077 identical ordered
   sentence/vector results at 5.26x legacy throughput with 872,742,912 bytes of
   peak memory, below the 2 GB gate.
+- The completed import used 1,389 provider requests with zero retries and
+  reported 888.74 sentences per second. All text and HNSW indexes are valid.
+- Full verification found all 1,062,078 embeddings with the released model,
+  exact source counts, no ACL leak, recall@10 of 0.7664, MRR of 0.5626, and
+  p50/p95 search latency of 82.44/115.52 ms. The normal database remains at
+  exactly 1,000 documents.
 
 ## Scope
 

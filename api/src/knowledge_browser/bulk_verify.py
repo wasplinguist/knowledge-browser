@@ -58,7 +58,6 @@ def _read_qa(path: Path) -> list[dict[str, Any]]:
                 not isinstance(row.get("question"), str)
                 or not row["question"]
                 or not isinstance(row.get("expected_doc_ids"), list)
-                or not row["expected_doc_ids"]
                 or not isinstance(row.get("required_group_ids"), list)
             ):
                 raise ValueError(f"invalid qa.jsonl line {line_number}")
@@ -117,20 +116,16 @@ def _qa_user(conn, required_group_ids: list[str]):
         return row[0] if row else None
     row = conn.execute(
         """
-        SELECT memberships.user_id
+        SELECT DISTINCT memberships.user_id
         FROM group_memberships memberships
         JOIN groups ON groups.id = memberships.group_id
         WHERE COALESCE(
           groups.raw_payload->>'acl_group_id', groups.raw_payload->>'id'
         ) = ANY(%s)
-        GROUP BY memberships.user_id
-        HAVING count(DISTINCT COALESCE(
-          groups.raw_payload->>'acl_group_id', groups.raw_payload->>'id'
-        )) = %s
         ORDER BY memberships.user_id
         LIMIT 1
         """,
-        (required_group_ids, len(set(required_group_ids))),
+        (required_group_ids,),
     ).fetchone()
     return row[0] if row else None
 
@@ -329,6 +324,13 @@ def verify_redwood(
         accessible = [(user, question) for user, question in users if user]
         if not accessible:
             raise ValueError("qa.jsonl has no accessible questions")
+        scored = [
+            (user, question)
+            for user, question in accessible
+            if question["expected_doc_ids"]
+        ]
+        if not scored:
+            raise ValueError("qa.jsonl has no scored questions")
         representatives = {
             "company": _representative(conn, "company"),
             "group": _representative(conn, "group"),
@@ -337,7 +339,7 @@ def verify_redwood(
             ),
         }
         embedding_texts = [
-            question["question"] for _, question in accessible
+            question["question"] for _, question in scored
         ] + [
             row[4] for row in representatives.values() if row
         ]
@@ -351,7 +353,7 @@ def verify_redwood(
         found = 0
         reciprocal_ranks = []
         latencies = []
-        for user, question in accessible:
+        for user, question in scored:
             text = question["question"]
             started = time.perf_counter()
             results = hybrid_search(
@@ -446,8 +448,8 @@ def verify_redwood(
         sources=sources,
         missing_embeddings=missing_embeddings,
         acl_checks=acl_checks,
-        recall_at_10=found / len(accessible),
-        mrr=sum(reciprocal_ranks) / len(accessible),
+        recall_at_10=found / len(scored),
+        mrr=sum(reciprocal_ranks) / len(scored),
         p50_ms=p50_ms,
         p95_ms=p95_ms,
     )
