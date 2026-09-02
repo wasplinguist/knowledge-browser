@@ -16,7 +16,7 @@ from knowledge_browser.search import hybrid_search, keyword_search
 
 
 ROOT = Path(__file__).parents[2]
-GOLDEN = ROOT / "eval" / "golden_queries.json"
+GOLDEN = ROOT / "eval" / "fixture_queries.json"
 RELEASED = ROOT / "search" / "profiles" / "released.json"
 
 
@@ -45,8 +45,9 @@ def test_committed_golden_queries_have_no_forbidden_search_leaks(db):
     )
 
     assert run["query_count"] == 4
-    assert run["overall"]["mrr@10"] == pytest.approx(0.75)
-    assert run["overall"]["recall@10"] == pytest.approx(0.75)
+    assert run["scored_query_count"] == 3
+    assert run["overall"]["mrr@10"] == pytest.approx(1.0)
+    assert run["overall"]["recall@10"] == pytest.approx(1.0)
     assert run["overall"]["forbidden_leaks"] == 0
 
     report_path = os.environ.get("EVALUATION_REPORT_PATH")

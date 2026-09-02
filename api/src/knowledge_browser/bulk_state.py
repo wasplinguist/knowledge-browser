@@ -82,6 +82,16 @@ def assert_redwood_database(database_url: str) -> None:
         raise BulkStateError("database name must be exactly knowledge_redwood")
 
 
+def assert_import_database(database_url: str) -> None:
+    """Allow imports only into the product or isolated Redwood database."""
+    try:
+        database = conninfo_to_dict(database_url).get("dbname")
+    except psycopg.ProgrammingError as error:
+        raise BulkStateError("database must be an approved product database") from error
+    if database not in {"knowledge_search", "knowledge_redwood"}:
+        raise BulkStateError("database must be an approved product database")
+
+
 def reset_redwood_database(
     database_url: str, schema_paths: Sequence[Path]
 ) -> None:

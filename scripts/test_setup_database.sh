@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Break caught: setup must not bootstrap until a fresh schema is applied, and
+# Break caught: setup must not import until a fresh schema is applied, and
 # must stop safely for partial schemas or unavailable PostgreSQL.
 root="$(cd "$(dirname "$0")/.." && pwd)"
 tmp="$(mktemp -d)"
@@ -54,8 +54,8 @@ case " $* " in
     [ "${FAKE_FAILURE:-}" != schema ] || { printf '%s\n' "$DATABASE_URL" >&2; exit 7; }
     exit 0
     ;;
-  *" knowledge_browser.bootstrap "*)
-    [ "${FAKE_BOOTSTRAP:-ok}" = ok ] || { echo 'bootstrap failed' >&2; exit 9; }
+  *" knowledge_browser.bulk_cli run "*)
+    [ "${FAKE_IMPORT:-ok}" = ok ] || { echo 'import failed' >&2; exit 9; }
     ;;
   *" knowledge_browser.db_compat "*)
     [ "${FAKE_COMPAT:-ok}" = ok ] || { echo 'compatibility check failed: database connection unavailable' >&2; exit 8; }
@@ -67,9 +67,9 @@ chmod +x "$tmp/docker" "$tmp/python"
 
 assert_order() {
   local database_url="$1" expected actual
-  expected="ready DATABASE_URL=$database_url"$'\n'"table-count DATABASE_URL=$database_url"$'\n'"schema DATABASE_URL=$database_url"$'\n'"python DATABASE_URL=$database_url -m knowledge_browser.bootstrap --data "
-  actual="$(sed -n '1,4p' "$log" | sed "4s|$root/data/company|data/company|")"
-  expected+="data/company"
+  expected="ready DATABASE_URL=$database_url"$'\n'"table-count DATABASE_URL=$database_url"$'\n'"schema DATABASE_URL=$database_url"$'\n'"python DATABASE_URL=$database_url -m knowledge_browser.bulk_cli run --data "
+  actual="$(sed -n '1,4p' "$log" | sed "4s|$root/data/redwood|data/redwood|")"
+  expected+="data/redwood"
   [ "$actual" = "$expected" ] || { printf 'unexpected explicit-url setup order:\n%s\n' "$actual" >&2; return 1; }
   ! grep -q '^compose up -d db$' "$log"
 }
@@ -85,7 +85,7 @@ printf 'DATABASE_URL=from-dotenv\n' >"$env_file"
 FAKE_LOG="$log" DATABASE_URL=from-process PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
   SETUP_DATABASE_READY_SLEEP=0 bash "$root/scripts/setup_database.sh"
 assert_order from-process
-grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.bootstrap --data $root/data/company" "$log" >/dev/null
+grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.bulk_cli run --data $root/data/redwood" "$log" >/dev/null
 grep -Fx "python DATABASE_URL=from-process -m knowledge_browser.db_compat" "$log" >/dev/null
 
 : >"$log"
@@ -101,10 +101,10 @@ FAKE_LOG="$log" PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" SETUP_DATABASE_READY_
 assert_default_order
 
 : >"$log"
-FAKE_LOG="$log" FAKE_TABLES=11 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
+FAKE_LOG="$log" FAKE_TABLES=14 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
   bash "$root/scripts/setup_database.sh"
 grep -q '^schema ' "$log" && { echo 'complete schema was reapplied' >&2; exit 1; }
-grep -q 'knowledge_browser.bootstrap' "$log"
+grep -q 'knowledge_browser.bulk_cli run' "$log"
 
 if FAKE_LOG="$log" FAKE_TABLES=3 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
   bash "$root/scripts/setup_database.sh" >"$tmp/out" 2>&1; then
@@ -143,16 +143,16 @@ for failure in config ready table-count schema; do
 done
 
 : >"$log"
-if FAKE_LOG="$log" FAKE_BOOTSTRAP=fail PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
+if FAKE_LOG="$log" FAKE_IMPORT=fail PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
   bash "$root/scripts/setup_database.sh" >"$tmp/out" 2>&1; then
-  echo 'bootstrap failure was accepted' >&2
+  echo 'import failure was accepted' >&2
   exit 1
 fi
-grep -Fx 'bootstrap failed' "$tmp/out" >/dev/null
+grep -Fx 'import failed' "$tmp/out" >/dev/null
 ! grep -q 'knowledge_browser.db_compat' "$log"
 
 : >"$log"
-if FAKE_LOG="$log" FAKE_TABLES=11 FAKE_COMPAT=fail PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
+if FAKE_LOG="$log" FAKE_TABLES=14 FAKE_COMPAT=fail PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
   bash "$root/scripts/setup_database.sh" >"$tmp/out" 2>&1; then
   echo 'compatibility failure was accepted' >&2
   exit 1

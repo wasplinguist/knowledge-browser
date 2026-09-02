@@ -18,7 +18,7 @@ from knowledge_browser.search import hybrid_search
 
 ROOT = Path(__file__).parents[2]
 DATABASE = os.environ.get("NATIVE_EVAL_DATABASE_URL")
-QUERIES = Path(os.environ.get("NATIVE_GOLDEN_QUERIES", ROOT / "eval" / "queries.json"))
+QUERIES = Path(os.environ.get("NATIVE_GOLDEN_QUERIES", ROOT / "eval" / "redwood_queries.json"))
 PROFILE = Path(os.environ.get(
     "NATIVE_RELEASED_PROFILE", ROOT / "search" / "profiles" / "released.json"
 ))
@@ -70,7 +70,7 @@ def _query_embeddings(queries: list[dict]) -> dict[str, list[float]]:
 def test_native_full_retrieval_quality():
     assert DATABASE, "NATIVE_EVAL_DATABASE_URL is required for full_retrieval"
     queries = load_golden_queries(QUERIES)
-    assert len(queries) == 603
+    assert len(queries) == 298
     vectors = _query_embeddings(queries)
     profile = load_profile(PROFILE)
 
@@ -85,16 +85,17 @@ def test_native_full_retrieval_quality():
             profile=profile.name,
         )
 
-    assert run["query_count"] == 603
+    assert run["query_count"] == 298
     assert run["overall"]["forbidden_leaks"] == 0
-    assert run["overall"]["mrr@10"] >= 0.50
-    assert run["overall"]["ndcg@10"] >= 0.55
-    assert run["overall"]["recall@10"] >= 0.68
     report_path = os.environ.get("EVALUATION_REPORT_PATH")
     if report_path:
         write_report(Path(report_path), run)
     print(json.dumps({
         "query_count": run["query_count"],
+        "scored_query_count": run["scored_query_count"],
         "overall": run["overall"],
         "latency_ms": run["latency_ms"],
     }, indent=2, sort_keys=True))
+    assert run["overall"]["mrr@10"] >= 0.50
+    assert run["overall"]["ndcg@10"] >= 0.55
+    assert run["overall"]["recall@10"] >= 0.68

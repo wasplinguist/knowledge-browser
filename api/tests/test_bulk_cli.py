@@ -186,7 +186,7 @@ def test_run_does_not_require_key_when_importer_does_not_request_client(
     assert "run=run-1 load_complete=yes provider_calls=0" in capsys.readouterr().out
 
 
-def test_run_refuses_normal_database_before_import(monkeypatch):
+def test_run_accepts_the_product_database_for_first_time_setup(monkeypatch):
     calls = []
     monkeypatch.setattr(
         bulk_cli,
@@ -201,11 +201,13 @@ def test_run_refuses_normal_database_before_import(monkeypatch):
     monkeypatch.setattr(
         bulk_cli,
         "run_import",
-        lambda *_args, **_kwargs: calls.append("run"),
+        lambda *_args, **_kwargs: calls.append("run") or SimpleNamespace(
+            run_id="run-1", complete=True, provider_calls=0
+        ),
     )
 
-    assert bulk_cli.main(["run", "--data", "/safe/data"]) == 1
-    assert calls == []
+    assert bulk_cli.main(["run", "--data", "/safe/data"]) == 0
+    assert calls == ["run"]
 
 
 def test_run_prints_safe_batch_progress(monkeypatch, tmp_path, capsys):
@@ -514,7 +516,7 @@ def test_verify_prints_safe_json_and_uses_released_profile(monkeypatch, capsys):
     dataset = _safe_cli(monkeypatch)
     calls = []
     monkeypatch.setattr(
-        bulk_cli, "assert_redwood_database", lambda url: calls.append(("guard", url))
+        bulk_cli, "assert_import_database", lambda url: calls.append(("guard", url))
     )
     monkeypatch.setattr(
         bulk_cli,
@@ -543,7 +545,7 @@ def test_verify_returns_failure_after_printing_incompatible_report(
     monkeypatch, capsys
 ):
     _safe_cli(monkeypatch)
-    monkeypatch.setattr(bulk_cli, "assert_redwood_database", lambda _url: None)
+    monkeypatch.setattr(bulk_cli, "assert_import_database", lambda _url: None)
     monkeypatch.setattr(
         bulk_cli, "verify_redwood", lambda *_args: _verification_report(compatible=False)
     )
@@ -560,7 +562,7 @@ def test_verify_returns_failure_after_printing_incompatible_report(
 
 def test_verify_returns_failure_when_p95_exceeds_two_seconds(monkeypatch, capsys):
     _safe_cli(monkeypatch)
-    monkeypatch.setattr(bulk_cli, "assert_redwood_database", lambda _url: None)
+    monkeypatch.setattr(bulk_cli, "assert_import_database", lambda _url: None)
     monkeypatch.setattr(
         bulk_cli,
         "verify_redwood",

@@ -12,7 +12,11 @@ import sys
 import psycopg
 
 from .bulk_import import run_import
-from .bulk_state import assert_redwood_database, reset_redwood_database
+from .bulk_state import (
+    assert_import_database,
+    assert_redwood_database,
+    reset_redwood_database,
+)
 from .bulk_verify import MAX_P95_MS, verify_redwood
 from .config import database_url
 from .dataset import validate_streaming_dataset
@@ -346,7 +350,7 @@ def main(argv=None):
         elif args.command == "run":
             dataset = _validated_dataset(args.data)
             url = _database_url(args)
-            assert_redwood_database(url)
+            assert_import_database(url)
             request_config = EmbeddingRequestConfig(
                 concurrency=args.embedding_concurrency,
                 max_inputs=args.embedding_max_inputs,
@@ -371,7 +375,7 @@ def main(argv=None):
         else:
             dataset = _validated_dataset(args.data)
             url = _database_url(args)
-            assert_redwood_database(url)
+            assert_import_database(url)
             report = verify_redwood(
                 _connection_factory(url),
                 dataset.root,

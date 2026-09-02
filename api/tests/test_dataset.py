@@ -9,17 +9,17 @@ import pytest
 from knowledge_browser.dataset import load_dataset, validate_manifest
 
 
-DATASET = Path(__file__).parents[2] / "data" / "company"
+DATASET = Path(__file__).parents[2] / "data" / "redwood"
 pytestmark = pytest.mark.unit
 
 EXPECTED_COUNTS = {
-    "artifacts": 1000,
+    "artifacts": 13214,
     "companies": 1,
-    "employees": 100,
-    "incidents": 125,
-    "projects": 25,
-    "qa": 603,
-    "teams": 10,
+    "employees": 7245,
+    "incidents": 0,
+    "projects": 12,
+    "qa": 274,
+    "teams": 12,
 }
 
 
@@ -47,28 +47,29 @@ def test_canonical_counts_and_source_fields():
     manifest = validate_manifest(DATASET)
     dataset = load_dataset(DATASET)
 
-    assert manifest["counts"]["artifacts"] == 1000
-    assert len(dataset.users) == 100
-    assert len(dataset.documents) == 1000
+    assert manifest["counts"]["artifacts"] == 13214
+    assert len(dataset.users) == 7245
+    assert len(dataset.documents) == 13214
     assert Counter(item.source for item in dataset.documents) == {
-        "confluence": 250,
-        "github": 250,
-        "jira": 250,
-        "slack": 250,
+        "confluence": 1904,
+        "github": 3825,
+        "jira": 3303,
+        "slack": 4182,
     }
 
-    restricted = next(
-        item for item in dataset.documents if item.external_id == "artifact-001-confluence-postmortem"
+    slack = next(
+        item
+        for item in dataset.documents
+        if item.external_id == "dsid_0767a662eacd463aaf0935750dba509e"
     )
-    jira = next(item for item in dataset.documents if item.external_id == "artifact-001-jira-issue")
-    assert restricted.acl == {"groups": ["Product Platform"]}
-    assert jira.fields["project_alias"]
-    assert jira.fields["issue_metadata"] == ["NIMREL-401 final status Resolved"]
+    assert slack.acl == {"company": True}
+    assert "Infrastructure" in slack.fields["project_alias"]
+    assert slack.fields["channel"] == ["eng-infra"]
 
 
 @pytest.mark.parametrize("count_name", EXPECTED_COUNTS)
 def test_manifest_rejects_each_declared_count_mismatch(tmp_path: Path, count_name: str):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     _replace_manifest(
         copied,
         lambda manifest: manifest["counts"].__setitem__(
@@ -82,7 +83,7 @@ def test_manifest_rejects_each_declared_count_mismatch(tmp_path: Path, count_nam
 
 @pytest.mark.parametrize("invalid_count", [True, "100", -1])
 def test_manifest_rejects_invalid_count_values(tmp_path: Path, invalid_count):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     _replace_manifest(
         copied,
         lambda manifest: manifest["counts"].__setitem__("employees", invalid_count),
@@ -94,7 +95,7 @@ def test_manifest_rejects_invalid_count_values(tmp_path: Path, invalid_count):
 
 @pytest.mark.parametrize("mutation", ["missing", "extra"])
 def test_manifest_rejects_noncanonical_count_keys(tmp_path: Path, mutation: str):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
 
     def mutate(manifest):
         if mutation == "missing":
@@ -109,7 +110,7 @@ def test_manifest_rejects_noncanonical_count_keys(tmp_path: Path, mutation: str)
 
 
 def test_changed_bytes_fail(tmp_path: Path):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     jira = copied / "artifacts" / "jira.jsonl"
     jira.write_bytes(jira.read_bytes() + b" ")
 
@@ -118,7 +119,7 @@ def test_changed_bytes_fail(tmp_path: Path):
 
 
 def test_invalid_acl_is_hidden(tmp_path: Path):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     records = _records(copied / "artifacts" / "slack.jsonl")
     records[0]["acl"] = {"company_access": "yes", "group_ids": [], "user_ids": []}
     _replace_records(copied, "artifacts/slack.jsonl", records)
@@ -128,7 +129,7 @@ def test_invalid_acl_is_hidden(tmp_path: Path):
 
 
 def test_nul_in_artifact_text_is_normalized_before_database_ingestion(tmp_path: Path):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     records = _records(copied / "artifacts" / "slack.jsonl")
     records[0]["payload"]["messages"][0]["text"] = "before\x00after"
     _replace_records(copied, "artifacts/slack.jsonl", records)
@@ -145,7 +146,7 @@ def test_nul_in_artifact_text_is_normalized_before_database_ingestion(tmp_path: 
 
 
 def test_reader_rejects_unsafe_manifest_paths_and_unknown_artifact_references(tmp_path: Path):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     manifest_path = copied / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     digest = manifest["files"].pop("employees.jsonl")
@@ -165,7 +166,7 @@ def test_reader_rejects_unsafe_manifest_paths_and_unknown_artifact_references(tm
 
 
 def test_manifest_rejects_symlinked_files_outside_the_dataset(tmp_path: Path):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     outside = tmp_path / "outside.jsonl"
     outside.write_text('{"not": "dataset data"}\n', encoding="utf-8")
     (copied / "outside.jsonl").symlink_to(outside)

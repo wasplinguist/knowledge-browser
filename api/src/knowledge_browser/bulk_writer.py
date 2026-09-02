@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import batched
@@ -12,10 +13,17 @@ from uuid import UUID, uuid5
 from psycopg.types.json import Jsonb
 
 from .embedding_index import encoded_vector, sentences
-from .importer import _acl_key
 
 
 NAMESPACE = UUID("5f975176-6ea4-4f55-a1f8-b04f0ec25112")
+
+
+def _acl_key(acl: dict[str, Any] | None) -> tuple[dict[str, Any], str]:
+    normalized = {} if acl is None else acl
+    if not isinstance(normalized, dict):
+        raise ValueError("ACL must be an object")
+    serialized = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    return normalized, hashlib.sha256(serialized.encode()).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)

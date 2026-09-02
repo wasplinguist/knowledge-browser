@@ -43,7 +43,7 @@ def _manifest(root: Path) -> Path:
     (root / "search" / "profiles" / "candidates" / "candidate.json").write_text(
         '{"name":"candidate","query_expansions":{"NREL":"Nimbus Relay"}}'
     )
-    (root / "eval" / "queries.json").write_text(json.dumps([{
+    (root / "eval" / "redwood_queries.json").write_text(json.dumps([{
         "id": "q1", "as_user": "u1", "query": "NREL status",
         "type": "acronym_alias", "acl_aware": True,
         "relevant": ["jira:COMPANY-1"],
@@ -65,7 +65,7 @@ def _manifest(root: Path) -> Path:
         "intent_audit": {"verdict": "ALIGNED", "evidence": "weekly"},
         "baseline_profile": "search/profiles/released.json",
         "challenger_profile": "search/profiles/candidates/candidate.json",
-        "golden_queries": "eval/queries.json",
+        "golden_queries": "eval/redwood_queries.json",
         "query_embeddings": "eval/embeddings.json",
         "golden_changes": [],
         "golden_change_reason": "Existing query measures the failure.",
@@ -213,9 +213,9 @@ def test_manifest_rejects_bad_or_ambiguous_query_embeddings(tmp_path):
     with pytest.raises(ValueError, match="1,536"):
         validate_manifest(path, tmp_path, now=lambda: NOW)
 
-    data = json.loads((tmp_path / "eval" / "queries.json").read_text())
+    data = json.loads((tmp_path / "eval" / "redwood_queries.json").read_text())
     data.append({**data[0], "id": "q2"})
-    (tmp_path / "eval" / "queries.json").write_text(json.dumps(data))
+    (tmp_path / "eval" / "redwood_queries.json").write_text(json.dumps(data))
     embeddings_path.write_text(json.dumps({
         "q1": [0.0] * 1536,
         "q2": [1.0] * 1536,

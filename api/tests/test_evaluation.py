@@ -15,7 +15,7 @@ from knowledge_browser.evaluation import (
 
 
 pytestmark = pytest.mark.search_eval
-FULL_GOLDEN = Path(__file__).parents[2] / "eval" / "queries.json"
+FULL_GOLDEN = Path(__file__).parents[2] / "eval" / "redwood_queries.json"
 
 
 def test_ranking_metrics_measure_recall_first_hit_and_order():
@@ -79,11 +79,11 @@ def test_query_evaluation_reports_metrics_and_forbidden_leaks():
 def test_latest_full_golden_queries_are_committed_and_supported():
     queries = load_golden_queries(FULL_GOLDEN)
 
-    assert len(queries) == 603
-    assert len({query["id"] for query in queries}) == 603
+    assert len(queries) == 298
+    assert len({query["id"] for query in queries}) == 298
     assert {query["type"] for query in queries} == {
-        "alias", "lexical", "multi_hop", "negative", "personalized",
-        "semantic", "temporal",
+        "answer_only", "lexical", "multi_hop", "negative", "semantic",
+        "temporal",
     }
     assert all(isinstance(query["relevant"], dict) for query in queries)
 
@@ -109,6 +109,39 @@ def test_evaluate_queries_accepts_full_corpus_relevance_grades():
     assert run["overall"]["mrr@10"] == 1
     assert run["overall"]["forbidden_leaks"] == 1
     assert run["latency_ms"]["p50"] >= 0
+
+
+def test_query_evaluation_excludes_unscored_questions_from_ranking_means():
+    queries = [
+        {
+            "id": "scored",
+            "as_user": "u1",
+            "query": "known item",
+            "relevant": {"artifact-1": 2},
+        },
+        {
+            "id": "negative",
+            "as_user": "u1",
+            "query": "private item",
+            "relevant": {},
+            "must_not_appear": ["artifact-hidden"],
+        },
+    ]
+
+    run = evaluate_queries(
+        queries,
+        lambda _user, query, _profile: (
+            [{"source": "jira", "external_id": "artifact-1"}]
+            if query == "known item" else []
+        ),
+        profile="released",
+    )
+
+    assert run["query_count"] == 2
+    assert run["scored_query_count"] == 1
+    assert run["overall"]["mrr@10"] == 1
+    assert run["overall"]["ndcg@10"] == 1
+    assert run["overall"]["recall@10"] == 1
 
 
 def test_query_evaluation_keeps_same_external_id_from_two_sources_distinct():

@@ -23,12 +23,12 @@ def test_real_loop_evaluator_uses_same_queries_and_a_fast_acl_sample(db, tmp_pat
     (root / "profiles" / "released.json").write_text(json.dumps(released))
     (root / "profiles" / "candidate.json").write_text(json.dumps(candidate))
     queries = json.loads(
-        (Path(__file__).parents[2] / "eval" / "golden_queries.json").read_text()
+        (Path(__file__).parents[2] / "eval" / "fixture_queries.json").read_text()
     )
     for index, query in enumerate(queries):
         query["type"] = "known_item" if index < 2 else "acl"
         query["acl_aware"] = index == 3
-    (root / "eval" / "queries.json").write_text(json.dumps(queries))
+    (root / "eval" / "redwood_queries.json").write_text(json.dumps(queries))
     (root / "eval" / "embeddings.json").write_text(json.dumps({
         query["id"]: [0.0] * 1536 for query in queries
     }))
@@ -37,7 +37,7 @@ def test_real_loop_evaluator_uses_same_queries_and_a_fast_acl_sample(db, tmp_pat
         "evidence_report": "evidence/weekly.json",
         "baseline_profile": "profiles/released.json",
         "challenger_profile": "profiles/candidate.json",
-        "golden_queries": "eval/queries.json",
+        "golden_queries": "eval/redwood_queries.json",
         "query_embeddings": "eval/embeddings.json",
     }
 
