@@ -200,7 +200,27 @@ it('shows structured evidence and opens inline citations in the local panel', as
   await userEvent.keyboard('{Escape}')
 
   await userEvent.click(screen.getByRole('button', { name: 'Who owns the remaining work?' }))
-  expect(screen.getByRole('searchbox')).toHaveValue('Who owns the remaining work?')
+  expect(screen.getByRole('searchbox')).toHaveValue('pool timeout')
+  expect(screen.getByRole('button', { name: 'Investigate pool timeout' })).toBeVisible()
+  expect(await screen.findByRole('heading', { name: 'Who owns the remaining work?' })).toBeVisible()
+  expect(screen.getAllByText((_, element) =>
+    element?.tagName === 'P' && element.textContent === 'The pool is saturated [1].')).toHaveLength(2)
+})
+
+it('accepts a typed follow-up inside the current answer panel', async () => {
+  await searchFor()
+  expect(await screen.findByText('The pool is saturated.')).toBeVisible()
+
+  const answerPanel = screen.getByRole('region', { name: 'AI answer' })
+  await userEvent.type(
+    within(answerPanel).getByRole('textbox', { name: 'Ask a follow-up question' }),
+    'What changed next?',
+  )
+  await userEvent.click(within(answerPanel).getByRole('button', { name: 'Ask' }))
+
+  expect(screen.getByRole('searchbox')).toHaveValue('pool timeout')
+  expect(await within(answerPanel).findByRole('heading', { name: 'What changed next?' })).toBeVisible()
+  expect(within(answerPanel).getAllByText('The pool is saturated.')).toHaveLength(2)
 })
 
 it('opens a local document panel, records the click, and returns focus on close', async () => {
