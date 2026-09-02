@@ -9,6 +9,7 @@ import httpx
 import pytest
 from openai import APIStatusError
 
+import knowledge_browser.embedding_index as embedding_index
 from knowledge_browser.embedding_index import (
     EmbeddingProviderError,
     EmbeddingRequestConfig,
@@ -407,6 +408,40 @@ def test_scheduler_stops_after_five_real_requests(monkeypatch):
         )
 
     assert attempts == 5
+
+
+def test_watcher_preserves_provider_error_at_cancellation_boundary(monkeypatch):
+    cancelled = Event()
+
+    class TimeoutRaceEvent:
+        def __init__(self):
+            self.finished = Event()
+
+        def set(self):
+            self.finished.set()
+
+        def wait(self, _timeout):
+            self.finished.wait(1.0)
+            return False
+
+        def is_set(self):
+            return self.finished.is_set()
+
+    class FailingClient:
+        embeddings = None
+
+        def __init__(self):
+            self.embeddings = self
+
+        def create(self, **_request):
+            raise EmbeddingProviderError("original provider error")
+
+    monkeypatch.setattr(embedding_index, "Event", TimeoutRaceEvent)
+
+    with pytest.raises(EmbeddingProviderError, match="original provider error"):
+        embedding_index._watched_request_batch(
+            FailingClient(), MODEL, ("text",), _config(), cancelled
+        )
 
 
 def test_scheduler_does_not_retry_terminal_provider_errors(monkeypatch):

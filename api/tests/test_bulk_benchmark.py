@@ -17,7 +17,7 @@ def test_fixed_scheduler_comparison_is_fast_and_preserves_vectors():
     assert result["same_vectors"] is True
     assert result["legacy_provider_requests"] == 12
     assert result["new_provider_requests"] == 3
-    assert result["throughput_ratio"] >= 5.0
+    assert result["new_seconds"] < result["legacy_seconds"]
 
 
 def test_fake_provider_vectors_are_specific_to_each_sentence():

@@ -287,6 +287,8 @@ def _watched_request_batch(client, model, batch, config, cancelled):
     deadline = _hard_clock() + config.total_timeout
     while not finished.wait(min(0.01, max(deadline - _hard_clock(), 0))):
         if cancelled.is_set():
+            if finished.is_set():
+                break
             raise CancelledError
         if _hard_clock() >= deadline:
             cancelled.set()

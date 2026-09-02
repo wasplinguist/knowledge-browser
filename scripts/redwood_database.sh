@@ -59,20 +59,7 @@ require_managed_container() {
 }
 
 load_environment
-python_bin="${PYTHON_BIN:-$project_root/api/.venv/bin/python}"
-if [ ! -x "$python_bin" ] && [ -z "${PYTHON_BIN:-}" ]; then
-  common_dir="$(git -C "$project_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-  if [ -n "$common_dir" ]; then
-    shared_python="$(dirname "$common_dir")/api/.venv/bin/python"
-    [ ! -x "$shared_python" ] || python_bin="$shared_python"
-  fi
-fi
-[ -x "$python_bin" ] || {
-  echo "Redwood Python environment is missing; install the API dependencies." >&2
-  exit 1
-}
 docker_bin="${DOCKER_BIN:-docker}"
-export PYTHONPATH="$project_root/api/src${PYTHONPATH:+:$PYTHONPATH}"
 command="${1:-}"
 [ "$#" -eq 0 ] || shift
 
@@ -88,6 +75,19 @@ case "$command" in
       -p "$compose_project" --profile redwood stop redwood-db
     ;;
   validate|reset|run|status|verify)
+    python_bin="${PYTHON_BIN:-$project_root/api/.venv/bin/python}"
+    if [ ! -x "$python_bin" ] && [ -z "${PYTHON_BIN:-}" ]; then
+      common_dir="$(git -C "$project_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+      if [ -n "$common_dir" ]; then
+        shared_python="$(dirname "$common_dir")/api/.venv/bin/python"
+        [ ! -x "$shared_python" ] || python_bin="$shared_python"
+      fi
+    fi
+    [ -x "$python_bin" ] || {
+      echo "Redwood Python environment is missing; install the API dependencies." >&2
+      exit 1
+    }
+    export PYTHONPATH="$project_root/api/src${PYTHONPATH:+:$PYTHONPATH}"
     case "$command" in reset|run) require_managed_container ;; esac
     export POSTGRES_HOST="127.0.0.1"
     export POSTGRES_PORT="${REDWOOD_POSTGRES_PORT:-5433}"
