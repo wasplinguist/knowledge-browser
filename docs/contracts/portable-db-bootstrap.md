@@ -60,7 +60,9 @@ cache state is stored in PostgreSQL and resumes interrupted imports.
 2. Start the Compose `db` service.
 3. Wait a bounded time for PostgreSQL readiness.
 4. Apply idempotent schema SQL.
-5. Run `python -m knowledge_browser.bulk_cli run --data data/redwood`.
+5. For an empty or resumable 14-table database, run
+   `python -m knowledge_browser.bulk_cli run --data data/redwood`. Preserve a
+   compatible populated 11-table database without starting a new import.
 6. Run the existing compatibility check.
 7. Start the API on port 8000 and web app on port 5173, after freeing those
    ports as already requested.
@@ -72,6 +74,8 @@ database environment variables. Its outcomes are:
   batches, create embeddings, then build final indexes.
 - Database with the matching completed import: report completion and make no
   data changes.
+- Compatible populated database with the legacy 11-table product schema: skip
+  the resumable importer, run compatibility checks, and make no data changes.
 - Partial, invalid, or incompatible database: exit nonzero with a safe,
   actionable message; do not delete or replace data.
 - Missing or invalid dataset, missing API key, provider failure, or database
@@ -82,8 +86,9 @@ The committed dataset must match its manifest. Expected indexed counts are
 
 ## Safety invariants
 
-- Existing databases without matching resumable state are never truncated,
-  replaced, or re-imported automatically.
+- Existing populated product databases without resumable state are never
+  truncated, replaced, or re-imported automatically; compatibility is checked
+  read-only before startup continues.
 - Each checkpoint advances atomically with its imported rows; a failed import
   safely resumes from the last completed batch.
 - ACL source records produce the same company, group, and direct-user access

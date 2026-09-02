@@ -27,6 +27,8 @@ active or committed.
   golden set.
 - Update bootstrap paths, repository policy, tests, documentation, and SVG
   diagrams for the Redwood corpus.
+- Refresh the inactive alias challenger from the only remaining committed
+  project catalog without promoting or releasing it.
 - Run the normal test tiers and report evaluation metrics by question family
   against the populated Redwood database.
 
@@ -47,10 +49,14 @@ active or committed.
 
 - `data/redwood/manifest.json` is the committed corpus authority.
 - `scripts/setup_database.sh` imports `data/redwood` for an empty portable
-  database and verifies an already-populated database on later starts.
+  database, resumes matching import state, and preserves a compatible populated
+  11-table product database without re-importing it.
 - `eval/redwood_queries.json` is the complete golden query path used by
   documentation, integration tests, and evaluation-loop configuration.
 - Generated evaluation output remains outside Git.
+- Ranking means include only questions with non-empty relevance labels. Every
+  question still participates in latency and forbidden-result checks, and the
+  generated report includes per-family question counts and ranking metrics.
 
 ## Safety invariants
 

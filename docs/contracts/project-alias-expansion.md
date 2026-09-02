@@ -79,8 +79,9 @@ the same retrieval behavior as when they use its canonical project name.
    retrieve evidence found by canonical project names.
 2. Affected intent: acronyms and aliases, known items, and cross-service
    evidence.
-3. Evidence: the 25-question alias slice has `0.1297` nDCG@10 and `0.36`
-   Recall@10, with 22 losses against the reference baseline.
+3. Evidence: the current project catalog yields 82 unambiguous whole-term
+   expansions, while the replacement benchmark has no dedicated alias family.
+   Fresh behavior evidence and alias questions are required before promotion.
 4. Target metric: improve alias nDCG@10 and Recall@10; do not reduce overall
    Recall@10 or introduce forbidden/ACL leaks.
 5. Regression risk: common uppercase terms including `PR`, `DB`, `QA`, `CI`,
@@ -93,12 +94,12 @@ the same retrieval behavior as when they use its canonical project name.
 ### Intent auditor
 
 ```text
-Verdict: ALIGNED
-Evidence: Alias 25 questions have Recall@10 0.36 and nDCG@10 0.1297, with 22 losses against the reference baseline.
+Verdict: UNCLEAR
+Evidence: The current catalog yields 82 candidate expansions, but the replacement benchmark has no alias family.
 Affected intents: acronyms and aliases, known items, cross-service evidence
 Metric: alias nDCG@10 and Recall@10; overall Recall@10; forbidden and ACL leaks
 Regression risk: common two-letter abbreviations such as PR, DB, and QA can have non-project meanings
-Questions: none; data/redwood/projects.jsonl is the repository-owned authoritative catalog
+Questions: collect current alias failures and add an independently labeled alias evaluation before promotion
 ```
 
 - The candidate should improve alias nDCG@10 and Recall@10.

@@ -106,6 +106,16 @@ FAKE_LOG="$log" FAKE_TABLES=14 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
 grep -q '^schema ' "$log" && { echo 'complete schema was reapplied' >&2; exit 1; }
 grep -q 'knowledge_browser.bulk_cli run' "$log"
 
+: >"$log"
+FAKE_LOG="$log" FAKE_TABLES=11 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
+  bash "$root/scripts/setup_database.sh"
+grep -q '^schema ' "$log" && { echo 'legacy product schema was reapplied' >&2; exit 1; }
+grep -q 'knowledge_browser.bulk_cli run' "$log" && {
+  echo 'legacy populated database was sent to the Redwood importer' >&2
+  exit 1
+}
+grep -q 'knowledge_browser.db_compat' "$log"
+
 if FAKE_LOG="$log" FAKE_TABLES=3 PATH="$tmp:$PATH" PYTHON_BIN="$tmp/python" \
   bash "$root/scripts/setup_database.sh" >"$tmp/out" 2>&1; then
   echo 'partial schema was accepted' >&2

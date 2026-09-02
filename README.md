@@ -297,15 +297,15 @@ questions still participate in latency and forbidden-result checks.
 | Question family | Questions | Ranking-scored | MRR@10 | nDCG@10 | Recall@10 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Lexical / known item | 83 | 83 | 0.636 | 0.689 | 0.855 |
-| Semantic | 135 | 135 | 0.472 | 0.485 | 0.603 |
+| Semantic | 135 | 135 | 0.465 | 0.477 | 0.596 |
 | Multi-hop | 22 | 22 | 0.815 | 0.712 | 0.785 |
 | Temporal | 2 | 2 | 1.000 | 1.000 | 1.000 |
 | Answer-only | 12 | 2 | 0.250 | 0.095 | 0.083 |
 | Negative / not found | 44 | 0 | N/A | N/A | N/A |
-| **Overall** | **298** | **244** | **0.561** | **0.576** | **0.704** |
+| **Overall** | **298** | **244** | **0.557** | **0.571** | **0.700** |
 
-The run returned zero forbidden-result leaks with 69 ms mean, 66 ms p50, and
-90 ms p95 search latency. Generated per-query output remains outside Git.
+The run returned zero forbidden-result leaks with 78 ms mean, 68 ms p50, and
+124 ms p95 search latency. Generated per-query output remains outside Git.
 
 Fast pull-request checks use four fixture queries and a deterministic ACL sample.
 The `full_retrieval` gate runs all 298 questions against the populated database.

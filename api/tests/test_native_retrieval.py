@@ -85,17 +85,18 @@ def test_native_full_retrieval_quality():
             profile=profile.name,
         )
 
-    assert run["query_count"] == 298
-    assert run["overall"]["forbidden_leaks"] == 0
     report_path = os.environ.get("EVALUATION_REPORT_PATH")
     if report_path:
         write_report(Path(report_path), run)
     print(json.dumps({
         "query_count": run["query_count"],
         "scored_query_count": run["scored_query_count"],
+        "families": run["families"],
         "overall": run["overall"],
         "latency_ms": run["latency_ms"],
     }, indent=2, sort_keys=True))
+    assert run["query_count"] == 298
+    assert run["overall"]["forbidden_leaks"] == 0
     assert run["overall"]["mrr@10"] >= 0.50
     assert run["overall"]["ndcg@10"] >= 0.55
     assert run["overall"]["recall@10"] >= 0.68

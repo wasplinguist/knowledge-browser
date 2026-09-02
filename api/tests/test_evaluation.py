@@ -144,6 +144,53 @@ def test_query_evaluation_excludes_unscored_questions_from_ranking_means():
     assert run["overall"]["recall@10"] == 1
 
 
+def test_query_evaluation_reports_metrics_by_question_family():
+    queries = [
+        {
+            "id": "lexical-scored",
+            "as_user": "u1",
+            "query": "known item",
+            "type": "lexical",
+            "relevant": {"artifact-1": 2},
+        },
+        {
+            "id": "negative-unscored",
+            "as_user": "u1",
+            "query": "private item",
+            "type": "negative",
+            "relevant": {},
+            "must_not_appear": ["artifact-hidden"],
+        },
+    ]
+
+    run = evaluate_queries(
+        queries,
+        lambda _user, query, _profile: (
+            [{"source": "jira", "external_id": "artifact-1"}]
+            if query == "known item" else []
+        ),
+        profile="released",
+    )
+
+    assert run["per_query"][0]["family"] == "lexical"
+    assert run["families"]["lexical"] == {
+        "query_count": 1,
+        "scored_query_count": 1,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0,
+        "recall@10": 1.0,
+        "forbidden_leaks": 0,
+    }
+    assert run["families"]["negative"] == {
+        "query_count": 1,
+        "scored_query_count": 0,
+        "mrr@10": None,
+        "ndcg@10": None,
+        "recall@10": None,
+        "forbidden_leaks": 0,
+    }
+
+
 def test_query_evaluation_keeps_same_external_id_from_two_sources_distinct():
     query = {
         "id": "q1",

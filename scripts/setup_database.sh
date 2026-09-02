@@ -56,6 +56,7 @@ with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
   echo "database schema inspection failed; check database access" >&2
   exit 1
 fi
+run_import=1
 case "$table_count" in
   0)
     if ! "$python_bin" -c '
@@ -73,6 +74,7 @@ with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
       exit 1
     fi
     ;;
+  11) run_import=0 ;;
   14) ;;
   *)
     echo "database is partially initialized; refusing setup" >&2
@@ -80,5 +82,7 @@ with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
     ;;
 esac
 
-"$python_bin" -m knowledge_browser.bulk_cli run --data "$project_root/data/redwood"
+if [ "$run_import" -eq 1 ]; then
+  "$python_bin" -m knowledge_browser.bulk_cli run --data "$project_root/data/redwood"
+fi
 "$python_bin" -m knowledge_browser.db_compat
