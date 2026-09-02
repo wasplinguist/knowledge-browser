@@ -310,8 +310,8 @@ The run returned zero forbidden-result leaks with 78 ms mean, 68 ms p50, and
 Fast pull-request checks use four fixture queries and a deterministic ACL sample.
 The `full_retrieval` gate runs all 298 questions against the populated database.
 The `full_acl` gate requires zero canonical-root and matched-child leaks. Full
-retrieval and full ACL are manual or nightly release gates, not ordinary
-pull-request checks.
+retrieval may run nightly; full ACL is an explicit manual release gate. Neither
+is an ordinary pull-request check.
 
 These controlled results compare Knowledge Browser profiles on the committed
 Redwood corpus. They do not by themselves prove superiority over native Slack,
@@ -376,8 +376,8 @@ docker compose config --quiet
 git diff --check
 ```
 
-The exhaustive `full_retrieval` and `full_acl` groups are separate manual or
-nightly release gates.
+The exhaustive `full_retrieval` group is a manual or nightly gate. `full_acl`
+is a separate manual release gate.
 
 ## Project rules
 
