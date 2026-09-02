@@ -184,6 +184,7 @@ export default function App() {
   const [hasSearched, setHasSearched] = useState(false)
   const [selectedDocument, setSelectedDocument] = useState<DocumentSelection | null>(null)
   const selectedResult = useRef<HTMLButtonElement | null>(null)
+  const followUpHeading = useRef<HTMLHeadingElement | null>(null)
   const requestId = useRef(0)
   const followUpId = useRef(0)
   const [searchSessionId] = useState(() => {
@@ -203,6 +204,10 @@ export default function App() {
       })
       .catch(() => setSearchError('Database connection error.'))
   }, [])
+
+  useEffect(() => {
+    if (followUps.length) followUpHeading.current?.focus()
+  }, [followUps.length])
 
   function clearResults() {
     setItems([])
@@ -311,7 +316,10 @@ export default function App() {
       title: citation.title || citation.external_id,
     }, button)
   }
-  const latestAnswer = followUps.at(-1)?.result || answerResult
+  const latestAnswer = followUps.reduce<AnswerResponse | null>(
+    (latest, entry) => entry.result || latest,
+    answerResult,
+  )
 
   return <div className="shell">
     <header className="topbar">
@@ -370,9 +378,12 @@ export default function App() {
               {answerResult && <GroundedAnswer result={answerResult} onCitation={openCitation} />}
               {!answerResult && !answerError && <p className="muted">Generating a grounded answer…</p>}
               {answerError && <p className="answer-error">{answerError}</p>}
-              {followUps.map((entry) => <section className="follow-up" key={entry.id} aria-label={`Follow-up: ${entry.question}`}>
+              {followUps.map((entry, index) => <section className="follow-up" key={entry.id} aria-label={`Follow-up: ${entry.question}`}>
                 <div className="follow-up-heading">
-                  <h3>{entry.question}</h3>
+                  <h3
+                    ref={index === followUps.length - 1 ? followUpHeading : undefined}
+                    tabIndex={-1}
+                  >{entry.question}</h3>
                   {entry.result?.evidence_status && <span className={`evidence-state ${entry.result.evidence_status}`}>
                     {evidenceLabels[entry.result.evidence_status]}
                   </span>}
