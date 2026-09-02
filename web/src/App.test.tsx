@@ -200,7 +200,54 @@ it('shows structured evidence and opens inline citations in the local panel', as
   await userEvent.keyboard('{Escape}')
 
   await userEvent.click(screen.getByRole('button', { name: 'Who owns the remaining work?' }))
-  expect(screen.getByRole('searchbox')).toHaveValue('Who owns the remaining work?')
+  expect(screen.getByRole('searchbox')).toHaveValue('pool timeout')
+  expect(screen.getByRole('button', { name: 'Investigate pool timeout' })).toBeVisible()
+  const followUpHeading = await screen.findByRole('heading', { name: 'Who owns the remaining work?' })
+  expect(followUpHeading).toBeVisible()
+  expect(followUpHeading).toHaveFocus()
+  expect(screen.getAllByText((_, element) =>
+    element?.tagName === 'P' && element.textContent === 'The pool is saturated [1].')).toHaveLength(2)
+})
+
+it('accepts a typed follow-up inside the current answer panel', async () => {
+  await searchFor()
+  expect(await screen.findByText('The pool is saturated.')).toBeVisible()
+
+  const answerPanel = screen.getByRole('region', { name: 'AI answer' })
+  await userEvent.type(
+    within(answerPanel).getByRole('textbox', { name: 'Ask a follow-up question' }),
+    'What changed next?',
+  )
+  await userEvent.click(within(answerPanel).getByRole('button', { name: 'Ask' }))
+
+  expect(screen.getByRole('searchbox')).toHaveValue('pool timeout')
+  expect(await within(answerPanel).findByRole('heading', { name: 'What changed next?' })).toBeVisible()
+  expect(within(answerPanel).getAllByText('The pool is saturated.')).toHaveLength(2)
+})
+
+it('keeps the latest successful suggestions when a follow-up fails', async () => {
+  vi.mocked(fetch).mockImplementation((input, init) => {
+    const url = String(input)
+    if (url.endsWith('/api/demo-users')) return json(users)
+    if (url.endsWith('/api/answer')) {
+      const question = JSON.parse(String(init?.body)).question
+      if (question === 'First follow-up?') return json({
+        answer: 'The latest answer.', citations: [], follow_ups: ['Second follow-up?'],
+      })
+      if (question === 'Second follow-up?') return Promise.reject(new Error('unavailable'))
+      return json({ answer: 'The initial answer.', citations: [], follow_ups: ['First follow-up?'] })
+    }
+    return json(result)
+  })
+  await searchFor()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'First follow-up?' }))
+  expect(await screen.findByText('The latest answer.')).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: 'Second follow-up?' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('AI answer is unavailable')
+
+  expect(screen.getByRole('button', { name: 'Second follow-up?' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'First follow-up?' })).not.toBeInTheDocument()
 })
 
 it('opens a local document panel, records the click, and returns focus on close', async () => {
