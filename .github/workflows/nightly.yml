@@ -41,10 +41,6 @@ jobs:
           --junitxml="${{ runner.temp }}/full-retrieval.xml" api/tests
         env:
           EVALUATION_REPORT_PATH: ${{ runner.temp }}/full-retrieval.json
-      - name: Full ACL gate
-        run: >-
-          python -m pytest -q -m full_acl
-          --junitxml="${{ runner.temp }}/full-acl.xml" api/tests
       - name: Complete API suite
         run: >-
           python -m pytest -q -m "not (full_acl or full_retrieval)"

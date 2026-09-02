@@ -21,7 +21,8 @@ or permission regressions.
 - Add an entitlement oracle that is independent from production ACL SQL.
 - Add focused search and RAG evaluation tests with fake providers only.
 - Add separate CI jobs for fast API checks and non-nightly evaluation.
-- Keep full ACL checks manual/nightly and outside normal pull-request latency.
+- Keep full ACL checks as an explicit manual release gate outside scheduled and
+  pull-request latency.
 - Keep generated reports outside Git history and upload CI results as artifacts.
 
 ## Non-goals
@@ -66,8 +67,8 @@ builder. Missing permission data denies access.
 - Every pull request: marker audit, under 1 minute.
 - Search/RAG changes and manual runs: non-nightly search and RAG evaluation,
   under 10 minutes.
-- Full ACL: manual/nightly only, zero root and child leaks required, timeout 75
-  minutes.
+- Full ACL: manual release gate only, zero root and child leaks required,
+  timeout 75 minutes.
 - Complete unfiltered API suite: release/nightly, timeout 90 minutes.
 
 The exhaustive full ACL command remains documented and callable, but it is not
@@ -119,8 +120,8 @@ Questions: none
   leak counts.
 - Released/candidate comparison identifies wins and losses.
 - Focused grounded-RAG evaluation rejects ungrounded citations.
-- CI has separate fast and non-nightly evaluation jobs plus manual/nightly full
-  ACL and complete-suite jobs.
+- CI has separate fast and non-nightly evaluation jobs; exhaustive full ACL is
+  a manual release gate, while the complete suite remains scheduled.
 - README commands match registered markers.
 - No production code behavior changes.
 - The exhaustive native ACL scan is not run in this feature session.

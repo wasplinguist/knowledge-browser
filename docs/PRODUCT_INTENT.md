@@ -1,6 +1,6 @@
 # Product intent
 
-## North star
+## Product priority
 
 Knowledge Browser gives people better practical company-knowledge search than
 searching Slack, Jira, Confluence, and GitHub one by one. Search quality is the

@@ -24,7 +24,7 @@ NATIVE_PROFILE = Path(os.environ.get(
 @pytest.mark.full_acl
 @pytest.mark.nightly
 def test_native_corpus_has_zero_root_and_child_acl_leaks():
-    """Run only at a configured manual/nightly release gate."""
+    """Run only at a configured manual release gate."""
     assert NATIVE_DATABASE, "NATIVE_EVAL_DATABASE_URL is required for full_acl"
     queries = json.loads(NATIVE_QUERIES.read_text(encoding="utf-8"))
     assert len(queries) == 298
