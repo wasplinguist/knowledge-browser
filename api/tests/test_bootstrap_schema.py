@@ -4,13 +4,16 @@ import psycopg
 import pytest
 
 
-SCHEMA = Path(__file__).parents[2] / "db" / "init" / "001_schema.sql"
+SCHEMAS = (
+    Path(__file__).parents[2] / "db" / "init" / "001_schema.sql",
+    Path(__file__).parents[2] / "db" / "init" / "002_bulk_import.sql",
+)
 
 pytestmark = pytest.mark.integration
 
 
 def test_production_schema_has_required_tables(prepared_test_database):
-    assert SCHEMA.is_file()
+    assert all(schema.is_file() for schema in SCHEMAS)
     with psycopg.connect(prepared_test_database) as conn:
         tables = {
             row[0]
@@ -27,4 +30,7 @@ def test_production_schema_has_required_tables(prepared_test_database):
         "sentences",
         "search_events",
         "search_clicks",
+        "bulk_import_runs",
+        "bulk_import_progress",
+        "bulk_embedding_cache",
     } <= tables

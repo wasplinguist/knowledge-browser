@@ -8,6 +8,11 @@ from .profiles import SearchProfile, expand_query
 
 
 SNIPPET_LENGTH = 280
+SEMANTIC_CANDIDATE_MULTIPLIER = 20
+SENTENCE_TABLES = {
+    source: f"{source}_sentences"
+    for source in ("jira", "confluence", "slack", "github")
+}
 FRESHNESS_QUERY = re.compile(
     r"\b(current|latest|recent|newest|now|today|up[- ]to[- ]date)\b",
     re.IGNORECASE,
@@ -175,13 +180,47 @@ def semantic_search(
 ) -> list[dict[str, Any]]:
     if not query_embedding:
         return []
-    source_sql, source_parameters = _source_filter(source)
+    sentence_table = SENTENCE_TABLES.get(source, "sentences")
+    source_sql = (
+        "AND sentences.source = %(source)s"
+        if source is not None and source not in SENTENCE_TABLES
+        else ""
+    )
+    source_parameters = {"source": source} if source_sql else {}
     embedding = "[" + ",".join(map(str, query_embedding)) + "]"
+    bounded_limit = max(1, min(limit, 100))
+    # Keep denied rows inside the ANN filter. OFFSET 0 below prevents PostgreSQL
+    # from pulling that ACL check above the partition HNSW scan.
+    conn.execute("SET LOCAL hnsw.iterative_scan = 'strict_order'")
     rows = conn.execute(
         f"""
-        WITH best_sentences AS (
+        WITH nearest_sentences AS MATERIALIZED (
+          SELECT sentences.source AS chunk_source,
+                 sentences.chunk_id,
+                 sentences.id AS sentence_id,
+                 sentences.embedding <=> %(embedding)s::halfvec AS distance
+          FROM {sentence_table} AS sentences
+          WHERE sentences.embedding IS NOT NULL
+            {source_sql}
+            AND EXISTS (
+              SELECT 1
+              FROM chunks
+              JOIN documents ON documents.id = chunks.document_id
+              JOIN documents root ON root.id = documents.root_document_id
+              WHERE chunks.source = sentences.source
+                AND chunks.id = sentences.chunk_id
+                AND root.root_document_id = root.id
+                AND {allowed_document_sql()}
+                AND {allowed_document_sql(document_alias="root")}
+              OFFSET 0
+            )
+          ORDER BY sentences.embedding <=> %(embedding)s::halfvec
+          LIMIT %(candidate_limit)s
+        ),
+        best_sentences AS (
           SELECT DISTINCT ON (chunks.source, chunks.id)
-                 chunks.id, chunks.field, chunks.text, root.id AS root_id,
+                 chunks.source AS chunk_source, chunks.id, chunks.field,
+                 chunks.text, root.id AS root_id,
                  root.external_id, root.title, root.source, root.author,
                  documents.author AS matched_author, root.container,
                  root.source_updated_at, root.url,
@@ -190,32 +229,29 @@ def semantic_search(
                  documents.external_id AS matched_external_id,
                  documents.source_created_at AS matched_created_at,
                  documents.source_updated_at AS matched_updated_at,
-                 sentences.embedding <=> %(embedding)s::halfvec AS distance
-          FROM sentences
+                 nearest_sentences.distance
+          FROM nearest_sentences
           JOIN chunks
-            ON chunks.source = sentences.source AND chunks.id = sentences.chunk_id
+            ON chunks.source = nearest_sentences.chunk_source
+           AND chunks.id = nearest_sentences.chunk_id
           JOIN documents ON documents.id = chunks.document_id
           JOIN documents root ON root.id = documents.root_document_id
-          WHERE root.root_document_id = root.id
-            AND {allowed_document_sql()}
-            AND {allowed_document_sql(document_alias="root")}
-            {source_sql}
-          ORDER BY chunks.source, chunks.id,
-                   sentences.embedding <=> %(embedding)s::halfvec,
-                   sentences.id
+          ORDER BY chunks.source, chunks.id, nearest_sentences.distance,
+                   nearest_sentences.sentence_id
         )
         SELECT id, field, text, root_id, external_id, title, source, author,
                matched_author, container, source_updated_at, url, is_child,
                source_created_at, chunk_index, matched_external_id,
                matched_created_at, matched_updated_at
         FROM best_sentences
-        ORDER BY distance, id
+        ORDER BY distance, chunk_source, id
         LIMIT %(limit)s
         """,
         {
             "user_id": user_id,
             "embedding": embedding,
-            "limit": max(1, min(limit, 100)),
+            "candidate_limit": bounded_limit * SEMANTIC_CANDIDATE_MULTIPLIER,
+            "limit": bounded_limit,
             **source_parameters,
         },
     ).fetchall()

@@ -84,6 +84,72 @@ launch the project Docker database.
 the grounded-answer model. If a query embedding fails after setup, keyword
 search remains available.
 
+### Full Redwood database
+
+The ignored local `data/redwood/` dataset can be imported into a separate
+PostgreSQL database. This workflow never changes the normal
+`knowledge_search` database, and normal `docker compose up` does not start the
+Redwood service.
+
+```bash
+./scripts/redwood_database.sh start
+./scripts/redwood_database.sh validate --data /path/to/redwood
+./scripts/redwood_database.sh reset --data /path/to/redwood --yes
+./scripts/redwood_database.sh run --data /path/to/redwood
+./scripts/redwood_database.sh status
+./scripts/redwood_database.sh verify --data /path/to/redwood --json
+./scripts/redwood_database.sh stop
+```
+
+The `run` command uses a bounded 200-document work window, eight embedding
+requests at a time, up to 512 inputs and 50,000 estimated tokens per request.
+Use the `--work-window-size`, `--embedding-concurrency`,
+`--embedding-max-inputs`, `--embedding-max-tokens`, and
+`--embedding-*-timeout` flags to lower these safe limits. Progress shows cache
+hits, provider requests, retries, sentence throughput, and estimated time
+remaining. `status` reports `running`, `stalled`, `failed`, `indexing`, or
+`complete`.
+
+Before a full import, run the deterministic 200-document performance gate:
+
+```bash
+PYTHONPATH=api/src api/.venv/bin/python -m knowledge_browser.bulk_benchmark \
+  --data /path/to/redwood --source slack --start-line 801 --documents 200
+```
+
+It exits with an error below 5x legacy throughput, at 2 GB memory, or when the
+old and new sentence/vector results differ. It prints one JSON object and does
+not write a report file. The normal import tests separately prove that provider
+calls leave no transaction open and that a stopped run reuses cached work.
+
+`reset` first validates the complete dataset and then requires `--yes`. It
+refuses every database name except `knowledge_redwood`. The import saves each
+completed batch, so running `run` again continues from the last saved line.
+Only uncached sentences need the configured OpenAI API key. The large text and
+vector indexes are built after all batches load. Status stays `indexing` until
+both indexes are valid, the tables are analyzed, and the run is complete.
+
+`verify` reads `qa.jsonl` without changing it and uses the released hybrid
+search profile. Its ACL probes also use that real search path for company,
+group, unauthorized, and unknown-user checks. When the validated source data
+contains direct-user ACLs, it also runs strict authorized and unauthorized
+direct-user searches. When there are none, the report shows
+`direct_user_status: not_applicable` with null direct results. In that case,
+`direct_user_database_links` must be zero; any unexpected database link is
+reported and makes verification fail. It checks exact document and source
+counts, embeddings, Recall@10, MRR, and local search
+p50/p95 latency. Semantic retrieval uses the finalized partition HNSW indexes
+before bounded result deduplication. Verification fails when p95 is over the
+two-second local target. It needs the OpenAI API key for query embeddings.
+`--json` prints the same safe aggregate report to standard output; no report
+file is created in the repository.
+
+If a manually created container already uses the name
+`knowledge-redwood-db`, `start` stops safely. Remove that exact container only
+after confirming it is the old Redwood pilot, then run `start` again. The
+`reset` and `run` commands also refuse to write until that Compose-managed
+container exists.
+
 ## Product behavior
 
 Choose a user from the Demo user menu, then search across Slack, Jira,

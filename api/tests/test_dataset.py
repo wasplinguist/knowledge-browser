@@ -127,6 +127,23 @@ def test_invalid_acl_is_hidden(tmp_path: Path):
     assert document.acl is None
 
 
+def test_nul_in_artifact_text_is_normalized_before_database_ingestion(tmp_path: Path):
+    copied = shutil.copytree(DATASET, tmp_path / "company")
+    records = _records(copied / "artifacts" / "slack.jsonl")
+    records[0]["payload"]["messages"][0]["text"] = "before\x00after"
+    _replace_records(copied, "artifacts/slack.jsonl", records)
+
+    document = next(
+        item
+        for item in load_dataset(copied).documents
+        if item.external_id == records[0]["id"]
+    )
+
+    assert document.title == "before\ufffdafter"
+    assert document.fields["message"][0] == "before\ufffdafter"
+    assert document.raw_payload["payload"]["messages"][0]["text"] == "before\ufffdafter"
+
+
 def test_reader_rejects_unsafe_manifest_paths_and_unknown_artifact_references(tmp_path: Path):
     copied = shutil.copytree(DATASET, tmp_path / "company")
     manifest_path = copied / "manifest.json"

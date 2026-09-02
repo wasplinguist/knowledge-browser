@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Any
+from typing import Any, Iterator
 
 
 SOURCES = ("slack", "jira", "github", "confluence")
@@ -55,6 +57,23 @@ class Dataset:
     documents: tuple[ParsedDocument, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ValidatedDataset:
+    root: Path
+    manifest: dict
+    manifest_digest: str
+    context: dict
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRecord:
+    source: str
+    line_number: int
+    start_offset: int
+    next_offset: int
+    document: ParsedDocument
+
+
 def _error(message: str) -> ValueError:
     return ValueError(f"invalid company dataset: {message}")
 
@@ -69,23 +88,40 @@ def _json_file(path: Path) -> dict[str, Any]:
     return value
 
 
-def _jsonl(path: Path) -> list[dict[str, Any]]:
+def _stream_sha256(path: Path, block_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while block := stream.read(block_size):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _iter_jsonl(
+    path: Path, *, start_offset: int = 0, start_line: int = 1
+) -> Iterator[tuple[int, int, int, dict[str, Any]]]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        with path.open("rb") as stream:
+            stream.seek(start_offset)
+            line_number = start_line
+            while line := stream.readline():
+                next_offset = stream.tell()
+                current_offset = next_offset - len(line)
+                if not line.strip():
+                    raise _error(f"{path.name}:{line_number} must contain an object")
+                try:
+                    value = json.loads(line)
+                except (json.JSONDecodeError, UnicodeDecodeError) as error:
+                    raise _error(f"invalid JSON in {path.name}:{line_number}") from error
+                if not isinstance(value, dict):
+                    raise _error(f"{path.name}:{line_number} must contain an object")
+                yield line_number, current_offset, next_offset, value
+                line_number += 1
     except OSError as error:
         raise _error(f"missing file: {path}") from error
-    records: list[dict[str, Any]] = []
-    for line_number, line in enumerate(lines, 1):
-        if not line.strip():
-            raise _error(f"{path.name}:{line_number} must contain an object")
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise _error(f"invalid JSON in {path.name}:{line_number}") from error
-        if not isinstance(value, dict):
-            raise _error(f"{path.name}:{line_number} must contain an object")
-        records.append(value)
-    return records
+
+
+def _jsonl(path: Path) -> list[dict[str, Any]]:
+    return [record for _, _, _, record in _iter_jsonl(path)]
 
 
 def _string(value: Any, label: str) -> str:
@@ -150,7 +186,7 @@ def validate_manifest(data_dir: Path) -> dict[str, Any]:
             raise _error(f"unsafe manifest path: {relative}") from error
         if not path.is_file():
             raise _error(f"missing file: {relative}")
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
+        if _stream_sha256(path) != expected_hash:
             raise _error(f"manifest hash mismatch: {relative}")
 
     world = _json_file(root / "world.json")
@@ -158,15 +194,15 @@ def validate_manifest(data_dir: Path) -> dict[str, Any]:
         raise _error("world.json company must contain an object")
     actual_counts = {
         "artifacts": sum(
-            len(_jsonl(root / "artifacts" / f"{source}.jsonl"))
+            sum(1 for _ in _iter_jsonl(root / "artifacts" / f"{source}.jsonl"))
             for source in SOURCES
         ),
         "companies": 1,
-        "employees": len(_jsonl(root / "employees.jsonl")),
-        "incidents": len(_jsonl(root / "events.jsonl")),
-        "projects": len(_jsonl(root / "projects.jsonl")),
-        "qa": len(_jsonl(root / "qa.jsonl")),
-        "teams": len(_jsonl(root / "teams.jsonl")),
+        "employees": sum(1 for _ in _iter_jsonl(root / "employees.jsonl")),
+        "incidents": sum(1 for _ in _iter_jsonl(root / "events.jsonl")),
+        "projects": sum(1 for _ in _iter_jsonl(root / "projects.jsonl")),
+        "qa": sum(1 for _ in _iter_jsonl(root / "qa.jsonl")),
+        "teams": sum(1 for _ in _iter_jsonl(root / "teams.jsonl")),
     }
     for name in COUNT_KEYS:
         if counts[name] != actual_counts[name]:
@@ -269,6 +305,19 @@ def _context(root: Path) -> dict[str, Any]:
 def _add_field(fields: dict[str, list[str]], name: str, values: list[str]) -> None:
     if values := [value for value in values if value]:
         fields[name] = values
+
+
+def _without_nuls(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace("\x00", "\ufffd")
+    if isinstance(value, list):
+        return [_without_nuls(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _without_nuls(key): _without_nuls(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _employee_terms(employee_ids: list[str], artifact_id: str, context: dict[str, Any]) -> list[str]:
@@ -418,38 +467,75 @@ def _document(artifact: dict[str, Any], source: str, context: dict[str, Any]) ->
         body, document_kind = "\n".join(bodies), "confluence_page"
 
     return ParsedDocument(
-        source=source,
-        kind=document_kind,
-        external_id=artifact_id,
-        title=title,
-        body=body,
-        author=context["names"][author_id],
-        url=f"https://synthetic.local/{source}/{artifact_id}",
-        container=container,
+        source=_without_nuls(source),
+        kind=_without_nuls(document_kind),
+        external_id=_without_nuls(artifact_id),
+        title=_without_nuls(title),
+        body=_without_nuls(body),
+        author=_without_nuls(context["names"][author_id]),
+        url=_without_nuls(f"https://synthetic.local/{source}/{artifact_id}"),
+        container=_without_nuls(container),
         created_at=_optional_string(
             artifact.get("created_at"), f"artifact {artifact_id} created_at"
         ),
         updated_at=_optional_string(
             artifact.get("updated_at"), f"artifact {artifact_id} updated_at"
         ),
-        acl=_mapped_acl(artifact.get("acl"), context),
-        raw_payload=artifact,
-        fields=fields,
+        acl=_without_nuls(_mapped_acl(artifact.get("acl"), context)),
+        raw_payload=_without_nuls(artifact),
+        fields=_without_nuls(fields),
     )
+
+
+def validate_streaming_dataset(data_dir: Path) -> ValidatedDataset:
+    """Validate the dataset without retaining its artifacts in memory."""
+    root = Path(data_dir)
+    manifest = validate_manifest(root)
+    context = _context(root)
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute("CREATE TEMPORARY TABLE artifact_ids (external_id TEXT PRIMARY KEY)")
+        for source in SOURCES:
+            for _, _, _, artifact in _iter_jsonl(root / "artifacts" / f"{source}.jsonl"):
+                document = _document(artifact, source, context)
+                try:
+                    connection.execute(
+                        "INSERT INTO artifact_ids (external_id) VALUES (?)",
+                        (document.external_id,),
+                    )
+                except sqlite3.IntegrityError as error:
+                    raise ValueError("duplicate artifact ID") from error
+    return ValidatedDataset(root, manifest, _stream_sha256(root / "manifest.json"), context)
+
+
+def iter_artifacts(
+    dataset: ValidatedDataset,
+    source: str,
+    start_offset: int = 0,
+    start_line: int = 1,
+) -> Iterator[ArtifactRecord]:
+    """Yield source artifacts from a saved byte offset and line number."""
+    if source not in SOURCES:
+        raise _error(f"unknown artifact source: {source}")
+    for line_number, current_offset, next_offset, artifact in _iter_jsonl(
+        dataset.root / "artifacts" / f"{source}.jsonl",
+        start_offset=start_offset,
+        start_line=start_line,
+    ):
+        yield ArtifactRecord(
+            source,
+            line_number,
+            current_offset,
+            next_offset,
+            _document(artifact, source, dataset.context),
+        )
 
 
 def load_dataset(data_dir: Path) -> Dataset:
     """Load the manifest-verified canonical dataset into importer-ready records."""
-    root = Path(data_dir)
-    validate_manifest(root)
-    context = _context(root)
-    documents: list[ParsedDocument] = []
-    artifact_ids: set[str] = set()
-    for source in SOURCES:
-        for artifact in _jsonl(root / "artifacts" / f"{source}.jsonl"):
-            document = _document(artifact, source, context)
-            if document.external_id in artifact_ids:
-                raise _error(f"duplicate artifact ID: {document.external_id}")
-            artifact_ids.add(document.external_id)
-            documents.append(document)
-    return Dataset(context["users"], context["identity_groups"], tuple(documents))
+    dataset = validate_streaming_dataset(data_dir)
+    documents = tuple(
+        record.document
+        for source in SOURCES
+        for record in iter_artifacts(dataset, source)
+    )
+    return Dataset(dataset.context["users"], dataset.context["identity_groups"], documents)

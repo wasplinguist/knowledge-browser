@@ -54,11 +54,15 @@ def _prepare_test_database() -> str:
         if not exists:
             admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
 
-    schema = Path(__file__).parents[2] / "db" / "init" / "001_schema.sql"
+    schemas = (
+        Path(__file__).parents[2] / "db" / "init" / "001_schema.sql",
+        Path(__file__).parents[2] / "db" / "init" / "002_bulk_import.sql",
+    )
     with psycopg.connect(url) as conn:
         conn.execute("DROP SCHEMA public CASCADE")
         conn.execute("CREATE SCHEMA public")
-        conn.execute(schema.read_text())
+        for schema in schemas:
+            conn.execute(schema.read_text())
     return url
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 from psycopg.types.json import Jsonb
@@ -20,7 +21,7 @@ class ImportReport:
     sentences: int
 
 
-def _acl_key(acl):
+def _acl_key(acl: dict[str, Any] | None) -> tuple[dict[str, Any], str]:
     if acl is None:
         acl = {}
     if not isinstance(acl, dict):

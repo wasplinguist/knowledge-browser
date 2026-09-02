@@ -1,0 +1,371 @@
+"""Resumable document and embedding batch coordination."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from itertools import batched, islice
+from time import monotonic
+from uuid import UUID
+
+from .bulk_state import (
+    configure_run,
+    load_progress,
+    record_run_metrics,
+    save_progress,
+    start_or_resume_run,
+    touch_run,
+)
+from .bulk_writer import (
+    BatchReport,
+    import_identities,
+    write_document_batch,
+)
+from .dataset import SOURCES, iter_artifacts
+from .db_compat import check_compatibility
+from .embedding_index import (
+    EmbeddingRequestConfig,
+    EmbeddingRequestResult,
+    MAX_PROVIDER_REQUESTS,
+    MAX_RETRY_DELAY,
+    collect_sentences,
+    load_cached_embeddings,
+    persist_embeddings,
+    request_missing_embeddings,
+)
+
+
+MODEL = "text-embedding-3-small"
+DIMENSIONS = 1536
+IMPORT_LOCK = (20260902, 4)
+SAFE_ERRORS = {
+    "batch_import_failed",
+    "embedding_provider_failed",
+    "embedding_provider_invalid_response",
+    "missing_api_key",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ImportResult:
+    run_id: UUID
+    complete: bool
+    batches: tuple[BatchReport, ...]
+
+    @property
+    def provider_calls(self):
+        return sum(batch.provider_calls for batch in self.batches)
+
+
+def _set_run_state(conn, run_id, status, safe_error=None):
+    result = conn.execute(
+        """
+        UPDATE public.bulk_import_runs
+        SET status = %s,
+            safe_error = %s,
+            updated_at = pg_catalog.now(),
+            completed_at = CASE
+              WHEN %s = 'complete' THEN pg_catalog.now()
+              ELSE NULL
+            END
+        WHERE id = %s
+        """,
+        (status, safe_error, status, run_id),
+    )
+    if result.rowcount != 1:
+        raise RuntimeError("bulk import run is missing")
+
+
+def finalize_indexes(conn, run_id) -> None:
+    """Build missing search indexes and complete the import atomically."""
+    _set_run_state(conn, run_id, "indexing")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS chunks_fts_idx "
+        "ON public.chunks USING gin (fts)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS sentences_embedding_idx "
+        "ON public.sentences USING hnsw (embedding halfvec_cosine_ops)"
+    )
+    conn.execute(
+        "ANALYZE public.users, public.documents, public.chunks, public.sentences"
+    )
+    report = check_compatibility(conn)
+    if any("index:" in issue for issue in report.issues):
+        raise RuntimeError("bulk import indexes failed compatibility checks")
+    _set_run_state(conn, run_id, "complete")
+
+
+def prepare_bulk_load(conn) -> None:
+    """Remove only indexes intentionally deferred during the Redwood load."""
+    conn.execute("DROP INDEX IF EXISTS public.chunks_fts_idx")
+    conn.execute("DROP INDEX IF EXISTS public.sentences_embedding_idx")
+
+
+def _record_failure(connection_factory, run_id, error):
+    safe_error = getattr(error, "safe_code", "batch_import_failed")
+    if safe_error not in SAFE_ERRORS:
+        safe_error = "batch_import_failed"
+    try:
+        with connection_factory() as conn:
+            with conn.transaction():
+                _set_run_state(conn, run_id, "failed", safe_error)
+    except Exception:
+        pass
+
+
+def _acquire_import_lock(conn):
+    conn.execute(
+        "SELECT pg_catalog.pg_advisory_lock(%s, %s)", IMPORT_LOCK
+    )
+    conn.commit()
+
+
+def _release_import_lock(conn):
+    try:
+        conn.execute(
+            "SELECT pg_catalog.pg_advisory_unlock(%s, %s)", IMPORT_LOCK
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+
+def run_import(
+    connection_factory,
+    dataset,
+    client_factory,
+    document_batch_size=100,
+    embedding_batch_size=100,
+    work_window_size=200,
+    request_config=None,
+    stop_after_batches=None,
+    progress_callback=None,
+):
+    """Start or resume a validated dataset import in committed batches."""
+    if document_batch_size <= 0:
+        raise ValueError("document_batch_size must be positive")
+    if embedding_batch_size <= 0:
+        raise ValueError("embedding_batch_size must be positive")
+    if work_window_size <= 0:
+        raise ValueError("work_window_size must be positive")
+    if stop_after_batches is not None and stop_after_batches < 0:
+        raise ValueError("stop_after_batches must not be negative")
+    started = monotonic()
+    request_config = request_config or EmbeddingRequestConfig(
+        max_inputs=embedding_batch_size
+    )
+
+    run = None
+    failure_recorded = False
+    try:
+        with connection_factory() as conn:
+            _acquire_import_lock(conn)
+            try:
+                run = start_or_resume_run(conn, dataset, MODEL, DIMENSIONS)
+                if run.status == "complete":
+                    return ImportResult(run.id, True, ())
+                with conn.transaction():
+                    _set_run_state(conn, run.id, "loading")
+                    configure_run(
+                        conn,
+                        run.id,
+                        request_concurrency=request_config.concurrency,
+                        stall_after_seconds=(
+                            request_config.total_timeout
+                            + MAX_RETRY_DELAY * (MAX_PROVIDER_REQUESTS - 1)
+                        ),
+                    )
+                    identities = import_identities(conn, dataset.context)
+
+                reports = []
+                client = None
+                with conn.transaction():
+                    initial_progress = {
+                        source: load_progress(conn, run.id, source)
+                        for source in SOURCES
+                    }
+                completed_documents = sum(
+                    item.documents for item in initial_progress.values()
+                )
+                session_documents = 0
+                session_sentences = 0
+                total_documents = dataset.manifest.get("counts", {}).get(
+                    "artifacts", 0
+                )
+                if stop_after_batches == 0:
+                    return ImportResult(run.id, False, ())
+
+                for source in SOURCES:
+                    progress = initial_progress[source]
+                    records = iter_artifacts(
+                        dataset,
+                        source,
+                        start_offset=progress.next_offset,
+                        start_line=progress.next_line,
+                    )
+                    while window := tuple(islice(records, work_window_size)):
+                        window_sentences = collect_sentences(
+                            [record.document for record in window]
+                        )
+                        with conn.transaction():
+                            cached = load_cached_embeddings(
+                                conn, run, window_sentences
+                            )
+                        missing = [
+                            sentence
+                            for sentence in window_sentences
+                            if sentence not in cached
+                        ]
+                        requested = EmbeddingRequestResult(
+                            {}, 0, 0, request_config.concurrency
+                        )
+                        if missing:
+                            if client is None:
+                                client = client_factory()
+                            requested = request_missing_embeddings(
+                                client,
+                                run.embedding_model,
+                                missing,
+                                request_config,
+                            )
+                            with conn.transaction():
+                                persist_embeddings(conn, run, requested.vectors)
+                                touch_run(conn, run.id)
+                        embeddings = {**cached, **requested.vectors}
+
+                        first_batch = True
+                        for batch in batched(window, document_batch_size):
+                            with conn.transaction():
+                                report = write_document_batch(
+                                    conn, run, batch, identities, embeddings
+                                )
+                                save_progress(
+                                    conn,
+                                    run.id,
+                                    source,
+                                    next_line=report.next_line,
+                                    next_offset=report.next_offset,
+                                    documents=(
+                                        progress.documents + report.documents
+                                    ),
+                                    chunks=progress.chunks + report.chunks,
+                                    sentences=(
+                                        progress.sentences + report.sentences
+                                    ),
+                                )
+                            elapsed = monotonic() - started
+                            completed_documents += report.documents
+                            session_documents += report.documents
+                            session_sentences += report.sentences
+                            document_rate = (
+                                session_documents / elapsed if elapsed else 0.0
+                            )
+                            remaining_documents = max(
+                                total_documents - completed_documents, 0
+                            )
+                            report = replace(
+                                report,
+                                elapsed_seconds=elapsed,
+                                provider_calls=(
+                                    requested.provider_requests
+                                    if first_batch
+                                    else 0
+                                ),
+                                cache_hits=len(cached) if first_batch else 0,
+                                cache_misses=len(missing) if first_batch else 0,
+                                concurrency=(
+                                    requested.concurrency if first_batch else 0
+                                ),
+                                retries=requested.retries if first_batch else 0,
+                                sentences_per_second=(
+                                    session_sentences / elapsed
+                                    if elapsed
+                                    else 0.0
+                                ),
+                                estimated_remaining_seconds=(
+                                    remaining_documents / document_rate
+                                    if document_rate
+                                    else 0.0
+                                ),
+                            )
+                            with conn.transaction():
+                                record_run_metrics(
+                                    conn,
+                                    run.id,
+                                    cache_hits=report.cache_hits,
+                                    cache_misses=report.cache_misses,
+                                    provider_requests=report.provider_calls,
+                                    request_concurrency=report.concurrency,
+                                    retries=report.retries,
+                                    sentences_per_second=(
+                                        report.sentences_per_second
+                                    ),
+                                    estimated_remaining_seconds=(
+                                        report.estimated_remaining_seconds
+                                    ),
+                                )
+                            first_batch = False
+                            if progress_callback is not None:
+                                progress_callback(report)
+                            reports.append(report)
+                            progress = replace(
+                                progress,
+                                next_line=report.next_line,
+                                next_offset=report.next_offset,
+                                documents=(
+                                    progress.documents + report.documents
+                                ),
+                                chunks=progress.chunks + report.chunks,
+                                sentences=(
+                                    progress.sentences + report.sentences
+                                ),
+                            )
+                            if (
+                                stop_after_batches is not None
+                                and len(reports) >= stop_after_batches
+                            ):
+                                return ImportResult(
+                                    run.id, False, tuple(reports)
+                                )
+                    source_size = (
+                        dataset.root / "artifacts" / f"{source}.jsonl"
+                    ).stat().st_size
+                    if (
+                        progress.next_offset != source_size
+                        or progress.next_line != progress.documents + 1
+                    ):
+                        raise RuntimeError("source checkpoint is incomplete")
+
+                loaded_documents = conn.execute(
+                    """
+                    SELECT COALESCE(sum(documents), 0)
+                    FROM public.bulk_import_progress
+                    WHERE run_id = %s
+                    """,
+                    (run.id,),
+                ).fetchone()[0]
+                expected_documents = dataset.manifest.get("counts", {}).get(
+                    "artifacts"
+                )
+                if (
+                    expected_documents is not None
+                    and loaded_documents != expected_documents
+                ):
+                    raise RuntimeError("source checkpoint is incomplete")
+
+                with conn.transaction():
+                    _set_run_state(conn, run.id, "indexing")
+                with conn.transaction():
+                    finalize_indexes(conn, run.id)
+                return ImportResult(run.id, True, tuple(reports))
+            except Exception as error:
+                if run is not None:
+                    failure_recorded = True
+                    _record_failure(connection_factory, run.id, error)
+                raise
+            finally:
+                _release_import_lock(conn)
+    except Exception as error:
+        if run is not None and not failure_recorded:
+            _record_failure(connection_factory, run.id, error)
+        raise
