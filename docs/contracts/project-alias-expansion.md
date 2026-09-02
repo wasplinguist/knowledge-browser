@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented
+Candidate implemented; fresh Redwood evaluation pending.
 
 ## User outcome
 
@@ -11,13 +11,11 @@ the same retrieval behavior as when they use its canonical project name.
 
 ## Evidence
 
-- The released profile scores `0.0636` MRR@10, `0.1297` nDCG@10, and `0.36`
-  Recall@10 on the 25 alias questions in `eval/queries.json`.
-- Compared with the reference baseline, the released profile has 2 wins, 22
-  losses, and 1 tie on those questions.
 - The user explicitly requested profile-based whole-term alias expansion.
-- `data/company/projects.jsonl` now provides the repository-owned project
+- `data/redwood/projects.jsonl` now provides the repository-owned project
   names, Jira keys, and per-source aliases used as the authoritative catalog.
+- The replacement 298-question Redwood benchmark does not contain a dedicated
+  alias family, so promotion requires a fresh, separately reviewed experiment.
 
 ## Scope
 
@@ -25,7 +23,7 @@ the same retrieval behavior as when they use its canonical project name.
   expansions derived from the current project catalog.
 - Reuse the existing whole-term, short-uppercase, and Jira issue-key protection
   in `expand_query`.
-- Evaluate the released and challenger profiles against the same 603 questions,
+- Evaluate the released and challenger profiles against the same 298 questions,
   users, database snapshot, embedding model, and embedding configuration. Each
   profile embeds its effective query text, matching the production API: raw for
   released and whole-term-expanded for the challenger.
@@ -36,7 +34,7 @@ the same retrieval behavior as when they use its canonical project name.
 
 - Do not change `search/profiles/released.json` or automatically promote the
   challenger.
-- Do not run the exhaustive 60,300-pair full ACL release gate in this work.
+- Do not run the exhaustive full ACL release gate in this work.
 - Do not change golden questions, relevance labels, embeddings, ranking
   weights, retrieval SQL, or answer generation.
 - Do not add runtime project discovery, an alias administration UI, or fuzzy
@@ -44,8 +42,8 @@ the same retrieval behavior as when they use its canonical project name.
 
 ## Dependencies
 
-- Portable first-run database bootstrap and the canonical company dataset are
-  merged into `main` in `1e3bcd7`.
+- Portable first-run database bootstrap and the Redwood dataset are available
+  on `main`.
 - The released hybrid retrieval and profile expansion behavior are already on
   `main`.
 
@@ -88,7 +86,7 @@ the same retrieval behavior as when they use its canonical project name.
 5. Regression risk: common uppercase terms including `PR`, `DB`, `QA`, `CI`,
    `IS`, and `ME` can have non-project meanings.
 6. Golden-set gaming: aliases come only from the repository-owned project
-   catalog, not from golden relevance labels. All 603 families are evaluated
+   catalog, not from golden relevance labels. All 298 questions are evaluated
    for regressions.
 7. Unclear purpose: none. The user selected profile-based whole-term expansion.
 
@@ -100,7 +98,7 @@ Evidence: Alias 25 questions have Recall@10 0.36 and nDCG@10 0.1297, with 22 los
 Affected intents: acronyms and aliases, known items, cross-service evidence
 Metric: alias nDCG@10 and Recall@10; overall Recall@10; forbidden and ACL leaks
 Regression risk: common two-letter abbreviations such as PR, DB, and QA can have non-project meanings
-Questions: none; data/company/projects.jsonl is the repository-owned authoritative catalog
+Questions: none; data/redwood/projects.jsonl is the repository-owned authoritative catalog
 ```
 
 - The candidate should improve alias nDCG@10 and Recall@10.
@@ -116,7 +114,7 @@ Questions: none; data/company/projects.jsonl is the repository-owned authoritati
 - Lowercase forms of two-character uppercase aliases do not expand.
 - Jira issue keys and longer words containing an alias do not expand.
 - The candidate profile is loadable and behaviorally distinct from released.
-- The same 603-question evaluation reports metrics by question family and no
+- The same 298-question evaluation reports metrics by question family and no
   forbidden leaks.
 - Fast ACL reports no root or child leaks.
 - Released profile and default API behavior are unchanged.
@@ -126,13 +124,17 @@ Questions: none; data/company/projects.jsonl is the repository-owned authoritati
 - Focused profile expansion unit tests, observed red before green.
 - Non-nightly API unit and integration suites.
 - Web tests and production build.
-- Fresh 603-question released-versus-challenger retrieval comparison using one
+- Fresh 298-question released-versus-challenger retrieval comparison using one
   database snapshot and the same embedding model and configuration, with each
   profile embedding its effective query text, summarized by question family.
 - Deterministic fast ACL sample against the challenger.
 - Full ACL is explicitly deferred to a later human-reviewed release gate.
 
-### Verification results
+### Historical verification results
+
+These results belong to the superseded 603-question benchmark. They explain
+why the candidate exists but do not validate it against the current Redwood
+corpus or authorize promotion.
 
 - On 2026-09-01, the 603-question comparison improved overall nDCG@10 from
   `0.59859` to `0.61217` and Recall@10 from `0.71012` to `0.73333`, with 22
@@ -147,4 +149,4 @@ Questions: none; data/company/projects.jsonl is the repository-owned authoritati
 
 ## Alias data source
 
-The only alias source is the committed `data/company/projects.jsonl` catalog.
+The only alias source is the committed `data/redwood/projects.jsonl` catalog.

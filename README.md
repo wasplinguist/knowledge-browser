@@ -5,7 +5,7 @@ Confluence, and GitHub content. It combines ACL-safe hybrid retrieval with
 grounded AI answers and source-aware document views.
 
 The repository includes the API, web app, PostgreSQL development service,
-company dataset, released search profile, evaluation queries, and release
+Redwood dataset, released search profile, evaluation queries, and release
 safety checks. Demo identity is used only to exercise document permissions; it
 is not production authentication.
 
@@ -52,13 +52,14 @@ On the first run, the script:
 1. starts PostgreSQL with Docker Compose;
 2. waits for the database to become ready;
 3. creates the Knowledge Browser schema;
-4. validates and imports the committed `data/company/` dataset;
-5. creates embeddings and checks database compatibility;
+4. validates and resumably imports the committed `data/redwood/` dataset;
+5. creates embeddings, builds search indexes, and checks compatibility;
 6. starts the FastAPI and React/Vite development servers.
 
-The first import creates 100 users, 1,000 documents, 13,145 chunks, and 16,520
-sentences. Later runs verify and reuse that database instead of importing it
-again.
+The first import creates 7,245 users, 13,214 documents, 398,919 chunks, and
+1,062,078 sentences. Completed batches are checkpointed, so an interrupted
+setup continues instead of starting over. Later runs verify and reuse the
+populated database.
 
 Open:
 
@@ -84,10 +85,11 @@ launch the project Docker database.
 the grounded-answer model. If a query embedding fails after setup, keyword
 search remains available.
 
-### Full Redwood database
+### Isolated Redwood database
 
-The ignored local `data/redwood/` dataset can be imported into a separate
-PostgreSQL database. This workflow never changes the normal
+The committed `data/redwood/` dataset can also be imported into a separate
+PostgreSQL database for evaluation and operator checks. This workflow never
+changes the normal
 `knowledge_search` database, and normal `docker compose up` does not start the
 Redwood service.
 
@@ -172,8 +174,8 @@ budgets, evidence state, and citations throughout the request.
 ## Project architecture
 
 Knowledge Browser runs the web app and API directly on the host. Docker Compose
-runs PostgreSQL with pgvector. The first startup validates and imports the
-committed company dataset; later startups verify and reuse the populated
+runs PostgreSQL with pgvector. The first startup validates and resumably
+imports the committed Redwood dataset; later startups verify and reuse the populated
 database without resetting it.
 
 ![Knowledge Browser project architecture](docs/images/project-architecture.svg)
@@ -181,7 +183,7 @@ database without resetting it.
 | Area | Primary paths | Responsibility |
 | --- | --- | --- |
 | Local runtime | `run_server.sh`, `web/`, `api/` | Start React/Vite and FastAPI, serve search, documents, answers, and event capture |
-| Data and index | `data/company/`, `db/init/`, `scripts/setup_database.sh` | Validate the manifest, create the schema, import artifacts and ACLs, and build sentence embeddings |
+| Data and index | `data/redwood/`, `db/init/`, `scripts/setup_database.sh` | Validate the manifest, checkpoint import batches, import ACLs and artifacts, and build text and vector indexes |
 | Search configuration | `search/profiles/` | Keep released and challenger retrieval settings versioned and reviewable |
 | Evaluation | `eval/`, `scripts/run_eval_loop.py` | Compare profiles on controlled queries and write review artifacts outside Git |
 
@@ -232,22 +234,23 @@ human approval.
 
 ## Dataset structure
 
-Knowledge Browser ships one committed dataset under `data/company/`. Startup
+Knowledge Browser ships one committed dataset under `data/redwood/`. Startup
 validates its complete manifest, builds identity and access metadata from the
 organization records, and indexes the Slack, Jira, GitHub, and Confluence
-renderings under `data/company/artifacts/`.
+renderings under `data/redwood/artifacts/`.
 
 ![Knowledge Browser dataset structure](docs/images/dataset-structure.svg)
 
 - `employees.jsonl`, `teams.jsonl`, `projects.jsonl`, and `acl.jsonl` produce
   user, group, project-alias, and access metadata during import.
-- `world.json`, `events.jsonl`, `qa.jsonl`, and `evidence_graphs.jsonl` are
-  manifest-verified organization, truth, and expected-evidence source records.
+- `world.json`, `events.jsonl`, and `qa.jsonl` are manifest-verified
+  organization, event, and expected-answer source records.
   They do not become searchable documents or direct evaluation inputs.
 - `manifest.json` records the dataset version, seed, counts, and SHA-256 digest
   of every listed dataset file.
-- `eval/golden_queries.json` and `eval/queries.json` are versioned evaluation
-  inputs, not alternate datasets or saved run output.
+- `eval/fixture_queries.json` is the four-query pull-request smoke set;
+  `eval/redwood_queries.json` is the complete golden set. Neither is saved run
+  output.
 
 The repository does not contain a dataset generator or a saved evaluation-run
 directory. The eval-driven loop writes each run to a new output directory
@@ -255,47 +258,63 @@ outside Git, such as `/tmp/knowledge-browser-runs/<id>`.
 
 ## Golden set and evaluation
 
-The committed benchmark begins with structured company truth and renders it
-across Slack, Jira, GitHub, and Confluence alongside duplicates, stale claims,
-conflicts, distractors, and access restrictions. Expected evidence is defined
+The committed benchmark covers Redwood knowledge rendered across Slack, Jira,
+GitHub, and Confluence, including duplicates, stale claims, conflicts,
+distractors, and access restrictions. Expected evidence is defined
 independently from search output.
 
 ![Golden set construction and evaluation](docs/images/golden-set-evaluation.svg)
 
-The dataset contains 100 employees in 10 teams, 25 projects, 125 incidents, and
-1,000 artifacts—250 from each source. `data/company/manifest.json` fingerprints
-every listed dataset file. The evaluation definitions are separated by runtime
-cost:
+The dataset contains 7,245 employees in 12 teams, 12 projects, and 13,214
+artifacts: 1,904 Confluence, 3,825 GitHub, 3,303 Jira, and 4,182 Slack records.
+`data/redwood/manifest.json` fingerprints every listed file. The evaluation
+definitions are separated by runtime cost:
 
 | File | Purpose |
 | --- | --- |
-| `eval/golden_queries.json` | Four small, hand-checkable queries for fast pull-request evaluation |
-| `eval/queries.json` | The complete 603-question retrieval benchmark |
+| `eval/fixture_queries.json` | Four small, hand-checkable queries for fast pull-request evaluation |
+| `eval/redwood_queries.json` | The complete 298-question retrieval benchmark |
 
 | Question family | Questions | What it evaluates |
 | --- | ---: | --- |
-| **Lexical / known item** | 125 | Exact IDs, names, and keywords |
-| **Semantic** | 151 | The same meaning expressed with different wording |
-| **Multi-hop** | 125 | Evidence combined across documents and sources |
-| **Temporal** | 150 | Current truth, ordering, and conflicting old claims |
-| **Alias** | 25 | Project acronyms and different cross-source names |
-| **Personalized** | 25 | Relevance to the asker's primary project |
-| **Negative / not found** | 2 | Returning no supported evidence without inventing or leaking an answer |
-| **Total** | **603** | |
+| **Lexical / known item** | 83 | Exact identifiers, names, configuration values, and keywords |
+| **Semantic** | 135 | The same meaning expressed with different wording |
+| **Multi-hop** | 22 | Evidence combined across documents or source systems |
+| **Temporal** | 2 | Current truth and ordering across changing claims |
+| **Negative / not found** | 44 | Returning no unsupported or unauthorized evidence |
+| **Answer-only** | 12 | Answer expectations whose removed evidence is not retrieval-scored |
+| **Total** | **298** | |
 
 Retrieval reports MRR@10 for the first relevant result, nDCG@10 for graded
 ordering, Recall@10 for expected-evidence coverage, and forbidden-result leaks.
 Released-versus-challenger comparisons also record per-query wins, losses, and
 ties plus latency.
 
-Fast pull-request checks use four golden queries and a deterministic ACL sample.
-The `full_retrieval` gate runs all 603 questions against the populated database.
-The `full_acl` gate evaluates 603 questions across 100 users—60,300 pairs—and
-requires zero canonical-root and matched-child leaks. Full retrieval and full
-ACL are manual or nightly release gates, not ordinary pull-request checks.
+The released profile produced the following Redwood baseline on 2026-09-02.
+Ranking means include only the 244 questions with relevance labels; all 298
+questions still participate in latency and forbidden-result checks.
 
-These controlled results compare Knowledge Browser profiles on committed
-synthetic data. They do not by themselves prove superiority over native Slack,
+| Question family | Questions | Ranking-scored | MRR@10 | nDCG@10 | Recall@10 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lexical / known item | 83 | 83 | 0.636 | 0.689 | 0.855 |
+| Semantic | 135 | 135 | 0.472 | 0.485 | 0.603 |
+| Multi-hop | 22 | 22 | 0.815 | 0.712 | 0.785 |
+| Temporal | 2 | 2 | 1.000 | 1.000 | 1.000 |
+| Answer-only | 12 | 2 | 0.250 | 0.095 | 0.083 |
+| Negative / not found | 44 | 0 | N/A | N/A | N/A |
+| **Overall** | **298** | **244** | **0.561** | **0.576** | **0.704** |
+
+The run returned zero forbidden-result leaks with 69 ms mean, 66 ms p50, and
+90 ms p95 search latency. Generated per-query output remains outside Git.
+
+Fast pull-request checks use four fixture queries and a deterministic ACL sample.
+The `full_retrieval` gate runs all 298 questions against the populated database.
+The `full_acl` gate requires zero canonical-root and matched-child leaks. Full
+retrieval and full ACL are manual or nightly release gates, not ordinary
+pull-request checks.
+
+These controlled results compare Knowledge Browser profiles on the committed
+Redwood corpus. They do not by themselves prove superiority over native Slack,
 Jira, GitHub, or Confluence search.
 
 ## Eval-driven development loop

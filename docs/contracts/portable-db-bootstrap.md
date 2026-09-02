@@ -2,13 +2,13 @@
 
 ## Status
 
-Implemented
+Implemented; updated by `redwood-dataset-cutover.md`.
 
 ## User outcome
 
 A developer can clone Knowledge Browser onto a new computer and run
 `./run_server.sh`. The command starts PostgreSQL, creates the required schema,
-imports the canonical company dataset when the database is empty, verifies the
+imports the Redwood dataset when the database is empty, verifies the
 database, and then starts the API and web app. Later runs reuse the populated
 database without importing again.
 
@@ -17,14 +17,13 @@ database without importing again.
 The first-run workflow must create and verify the local `knowledge_search`
 database on a new computer before starting the API and web app.
 
-The committed dataset is manifest-verified and contains 100 users, 1,000
-documents, 13,145 chunks, and 16,520 sentences after indexing. Its neighboring
-embedding cache is 252 MB and is not required when embeddings are created with
-the configured OpenAI API key.
+The committed dataset is manifest-verified and contains 7,245 users, 13,214
+documents, 398,919 chunks, and 1,062,078 sentences after indexing. Embedding
+cache state is stored in PostgreSQL and resumes interrupted imports.
 
 ## Scope
 
-- Keep the active `data/company` source dataset, including its
+- Keep the active `data/redwood` source dataset, including its
   manifest and source artifacts.
 - Add the PostgreSQL schema required by the existing compatibility contract.
 - Add manifest validation, source parsing, chunking, embedding, and transactional
@@ -61,32 +60,32 @@ the configured OpenAI API key.
 2. Start the Compose `db` service.
 3. Wait a bounded time for PostgreSQL readiness.
 4. Apply idempotent schema SQL.
-5. Run `python -m knowledge_browser.bootstrap --data data/company`.
+5. Run `python -m knowledge_browser.bulk_cli run --data data/redwood`.
 6. Run the existing compatibility check.
 7. Start the API on port 8000 and web app on port 5173, after freeing those
    ports as already requested.
 
-The bootstrap command accepts a dataset directory and uses the normal database
-environment variables. Its outcomes are:
+The bulk import command accepts a dataset directory and uses the normal
+database environment variables. Its outcomes are:
 
-- Empty database: validate the manifest, import all records and ACLs, create
-  chunks and embeddings, then commit.
-- Database with documents: report that setup is already complete and make no
+- Empty database: validate the manifest, import records and ACLs in resumable
+  batches, create embeddings, then build final indexes.
+- Database with the matching completed import: report completion and make no
   data changes.
 - Partial, invalid, or incompatible database: exit nonzero with a safe,
   actionable message; do not delete or replace data.
 - Missing or invalid dataset, missing API key, provider failure, or database
-  failure: exit nonzero and leave no partial import committed.
+  failure: exit nonzero while preserving every completed checkpoint.
 
-The committed dataset must match its manifest. Expected indexed counts are 100
-users, 1,000 documents, 13,145 chunks, and 16,520 sentences.
+The committed dataset must match its manifest. Expected indexed counts are
+7,245 users, 13,214 documents, 398,919 chunks, and 1,062,078 sentences.
 
 ## Safety invariants
 
-- Existing databases with documents are never truncated, replaced, or
-  re-imported automatically.
-- Import is transactional; a failed import does not leave partial searchable
-  data.
+- Existing databases without matching resumable state are never truncated,
+  replaced, or re-imported automatically.
+- Each checkpoint advances atomically with its imported rows; a failed import
+  safely resumes from the last completed batch.
 - ACL source records produce the same company, group, and direct-user access
   rules required by the existing ACL contract.
 - Unknown users and disallowed users receive no protected document, chunk, or
@@ -116,8 +115,8 @@ the existing compatibility check and preserve the released search behavior.
 - A second setup makes no import or embedding provider calls.
 - Existing populated databases are not changed.
 - Invalid, partial, and failed imports stop safely with clear messages.
-- Compatibility reports 100 users, 1,000 documents, 13,145 chunks, and 16,520
-  sentences with all four sources present.
+- Compatibility reports 7,245 users, 13,214 documents, 398,919 chunks, and
+  1,062,078 sentences with all four sources present.
 - Focused ACL tests show no leak across representative company, team, direct,
   root, child, and unknown-user cases.
 - API and web tests remain green.
@@ -143,11 +142,12 @@ feature.
 
 The bootstrap is defined by these versioned project paths:
 
-- `data/company/` — the active manifest-verified dataset.
-- `db/init/001_schema.sql` — database schema.
+- `data/redwood/` — the active manifest-verified dataset.
+- `db/init/001_schema.sql` and `db/init/002_bulk_import.sql` — product schema
+  and resumable import state.
 - `api/src/knowledge_browser/dataset.py` and
-  `api/src/knowledge_browser/importer.py` — validation, parsing, and
-  transactional import.
+  `api/src/knowledge_browser/bulk_import.py` — validation, parsing, and
+  resumable import.
 - `api/src/knowledge_browser/embedding_index.py` — chunking, deduplication, and
   embedding batching.
 - `run_server.sh` and `scripts/setup_database.sh` — startup and database setup.

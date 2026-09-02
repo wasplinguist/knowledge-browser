@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
   <title id="title">Golden set construction and evaluation</title>
-  <desc id="desc">A five-stage pipeline from committed canonical company truth through noisy source artifacts, golden questions, integrity validation, retrieval and ACL evaluation, plus separate fixture-based RAG safety checks.</desc>
+  <desc id="desc">A five-stage pipeline from committed Redwood knowledge through source artifacts, golden questions, integrity validation, retrieval and ACL evaluation, plus separate fixture-based RAG safety checks.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
@@ -28,8 +28,8 @@
   <text x="110" y="282" class="heading">Structured world</text>
   <text x="110" y="322" class="body">employees · teams</text>
   <text x="110" y="352" class="body">projects · aliases</text>
-  <text x="110" y="382" class="body">incidents · timelines</text>
-  <text x="110" y="412" class="body">facts · owners · status</text>
+  <text x="110" y="382" class="body">organization · ownership</text>
+  <text x="110" y="412" class="body">facts · systems · status</text>
   <rect x="110" y="447" width="195" height="30" rx="15" fill="#dbeafe"/>
   <text x="208" y="468" class="small" text-anchor="middle">source of truth</text>
 
@@ -49,14 +49,14 @@
 
   <rect x="680" y="165" width="300" height="375" rx="20" fill="#eef2ff" stroke="#6366f1" stroke-width="3"/>
   <text x="705" y="202" class="step">3 · GOLDEN SET</text>
-  <text x="705" y="242" class="heading">603 questions</text>
+  <text x="705" y="242" class="heading">298 questions</text>
   <text x="705" y="282" class="body">query + asker identity</text>
   <text x="705" y="312" class="body">graded relevant artifacts</text>
   <text x="705" y="342" class="body">required facts + events</text>
   <text x="705" y="372" class="body">expected source coverage</text>
   <text x="705" y="402" class="body">known distractors</text>
   <text x="705" y="432" class="body">must-not-appear evidence</text>
-  <text x="705" y="462" class="body">typed evidence graph</text>
+  <text x="705" y="462" class="body">answer facts + source types</text>
   <rect x="705" y="492" width="245" height="30" rx="15" fill="#e0e7ff"/>
   <text x="828" y="513" class="small" text-anchor="middle">expected behavior per query</text>
 
@@ -69,7 +69,7 @@
   <text x="1045" y="332" class="body">gold is ACL-readable</text>
   <text x="1045" y="362" class="body">distractors are not gold</text>
   <text x="1045" y="392" class="body">evidence reaches answer</text>
-  <text x="1045" y="422" class="body">typed evidence paths</text>
+  <text x="1045" y="422" class="body">relevant source mapping</text>
   <text x="1045" y="452" class="body">manifest SHA-256</text>
 
   <path d="M 1255 352 L 1295 352" class="line"/>
@@ -93,7 +93,7 @@
 
   <rect x="572" y="665" width="455" height="165" rx="20" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
   <text x="602" y="705" class="metric">ACL safety</text>
-  <text x="602" y="742" class="body">603 questions × 100 demo users</text>
+  <text x="602" y="742" class="body">identity-scoped queries + ACL matrix</text>
   <text x="602" y="775" class="body">root leaks · matched-child leaks</text>
   <text x="602" y="808" class="small">release requirement: zero leaks</text>
 
@@ -103,5 +103,5 @@
   <text x="1104" y="775" class="body">complete answers without citations</text>
   <text x="1104" y="808" class="small">separate focused test suite</text>
 
-  <text x="800" y="870" class="subtitle" text-anchor="middle">Synthetic evidence supports controlled comparison; it does not prove superiority over native service search.</text>
+  <text x="800" y="870" class="subtitle" text-anchor="middle">Redwood evidence supports controlled comparison; it does not prove superiority over native service search.</text>
 </svg>
