@@ -337,6 +337,98 @@ def _request_with_retry(client, model, batch):
             time.sleep(min(0.25 * 2**attempt, 2.0))
 
 
+def _validate_cache_run(conn, run) -> None:
+    row = conn.execute(
+        """
+        SELECT embedding_model, embedding_dimensions
+        FROM public.bulk_import_runs
+        WHERE id = %s
+        """,
+        (run.id,),
+    ).fetchone()
+    if row != (run.embedding_model, run.embedding_dimensions):
+        raise ValueError("embedding cache run mismatch")
+
+
+def _sentence_hashes(values: Sequence[str]) -> dict[str, str]:
+    unique = tuple(dict.fromkeys(values))
+    by_hash = {sentence_key(sentence): sentence for sentence in unique}
+    if len(by_hash) != len(unique):
+        raise ValueError("embedding cache hash collision")
+    return by_hash
+
+
+def load_cached_embeddings(conn, run, values: Sequence[str]) -> dict[str, str]:
+    """Read matching cache rows once after checking the run identity."""
+    _validate_cache_run(conn, run)
+    by_hash = _sentence_hashes(values)
+    if not by_hash:
+        return {}
+    result = {}
+    for content_hash, sentence, embedding in _cached_embeddings(
+        conn, run.id, list(by_hash)
+    ):
+        if by_hash[content_hash] != sentence:
+            raise ValueError("embedding cache hash collision")
+        result[sentence] = embedding
+    return result
+
+
+def persist_embeddings(conn, run, vectors: dict[str, str]) -> None:
+    """Bulk-insert encoded vectors and validate hash collisions set-wide."""
+    _validate_cache_run(conn, run)
+    by_hash = _sentence_hashes(tuple(vectors))
+    if not by_hash:
+        return
+    conn.execute(
+        """
+        CREATE TEMPORARY TABLE IF NOT EXISTS bulk_embedding_stage (
+            content_hash text PRIMARY KEY,
+            sentence text NOT NULL,
+            embedding_text text NOT NULL
+        ) ON COMMIT DROP
+        """
+    )
+    conn.execute("TRUNCATE pg_temp.bulk_embedding_stage")
+    with conn.cursor() as cursor:
+        with cursor.copy(
+            """
+            COPY pg_temp.bulk_embedding_stage (
+                content_hash, sentence, embedding_text
+            ) FROM STDIN
+            """
+        ) as copy:
+            for content_hash, sentence in by_hash.items():
+                copy.write_row((content_hash, sentence, vectors[sentence]))
+    conn.execute(
+        """
+        INSERT INTO public.bulk_embedding_cache (
+            run_id, content_hash, sentence, embedding
+        )
+        SELECT %s, content_hash, sentence, embedding_text::halfvec
+        FROM pg_temp.bulk_embedding_stage
+        ON CONFLICT (run_id, content_hash) DO NOTHING
+        """,
+        (run.id,),
+    )
+    invalid = conn.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_temp.bulk_embedding_stage AS stage
+            LEFT JOIN public.bulk_embedding_cache AS cache
+              ON cache.run_id = %s
+             AND cache.content_hash = stage.content_hash
+            WHERE cache.content_hash IS NULL
+               OR cache.sentence IS DISTINCT FROM stage.sentence
+        )
+        """,
+        (run.id,),
+    ).fetchone()[0]
+    if invalid:
+        raise ValueError("embedding cache hash collision")
+
+
 def _cached_embeddings(conn, run_id, hashes):
     if not hashes:
         return []

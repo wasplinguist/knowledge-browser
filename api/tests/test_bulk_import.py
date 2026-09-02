@@ -23,6 +23,8 @@ from knowledge_browser.dataset import (
 from knowledge_browser.embedding_index import (
     collect_sentences,
     embed_missing,
+    load_cached_embeddings,
+    persist_embeddings,
     sentence_key,
 )
 
@@ -142,6 +144,88 @@ def test_embedding_cache_rejects_invalid_provider_indexes(db, run):
     assert db.execute(
         "SELECT count(*) FROM bulk_embedding_cache WHERE run_id = %s", (run.id,)
     ).fetchone() == (0,)
+
+
+def test_bulk_cache_read_and_write_preserve_sentence_vectors(db, run):
+    vector = "[" + ",".join(["0"] * 1536) + "]"
+
+    persist_embeddings(db, run, {"one sentence": vector, "second sentence": vector})
+
+    assert load_cached_embeddings(
+        db, run, ["second sentence", "missing", "one sentence"]
+    ) == {
+        "second sentence": vector,
+        "one sentence": vector,
+    }
+
+
+def test_bulk_cache_write_uses_copy_not_executemany(db, run):
+    used_copy = False
+
+    class CursorSpy:
+        def __init__(self, cursor):
+            self.cursor = cursor
+
+        def __enter__(self):
+            self.cursor.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.cursor.__exit__(*args)
+
+        def copy(self, statement):
+            nonlocal used_copy
+            used_copy = True
+            return self.cursor.copy(statement)
+
+        def executemany(self, *_args, **_kwargs):
+            raise AssertionError("cache persistence must use COPY")
+
+    class ConnectionSpy:
+        def execute(self, *args, **kwargs):
+            return db.execute(*args, **kwargs)
+
+        def cursor(self):
+            return CursorSpy(db.cursor())
+
+    vector = "[" + ",".join(["1"] * 1536) + "]"
+    persist_embeddings(ConnectionSpy(), run, {"copied sentence": vector})
+
+    assert used_copy is True
+    assert load_cached_embeddings(db, run, ["copied sentence"]) == {
+        "copied sentence": vector
+    }
+
+
+def test_bulk_cache_rejects_run_model_or_dimension_mismatch(db, run):
+    vector = "[" + ",".join(["0"] * 1536) + "]"
+
+    with pytest.raises(ValueError, match="embedding cache run mismatch"):
+        load_cached_embeddings(db, replace(run, embedding_model="other"), ["one"])
+    with pytest.raises(ValueError, match="embedding cache run mismatch"):
+        persist_embeddings(
+            db,
+            replace(run, embedding_dimensions=2),
+            {"one": vector},
+        )
+
+
+def test_bulk_cache_rejects_hash_collision_set_wide(db, run, monkeypatch):
+    vector = "[" + ",".join(["0"] * 1536) + "]"
+    db.execute(
+        """
+        INSERT INTO bulk_embedding_cache (run_id, content_hash, sentence, embedding)
+        VALUES (%s, %s, %s, %s::halfvec)
+        """,
+        (run.id, "forced-hash", "existing sentence", vector),
+    )
+    monkeypatch.setattr(
+        "knowledge_browser.embedding_index.sentence_key",
+        lambda _sentence: "forced-hash",
+    )
+
+    with pytest.raises(ValueError, match="embedding cache hash collision"):
+        persist_embeddings(db, run, {"different sentence": vector})
 
 
 def test_document_batch_is_idempotent_and_rejects_changed_chunk_content(
