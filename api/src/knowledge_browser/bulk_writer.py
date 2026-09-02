@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from itertools import batched
 from typing import Any, Iterable
 from uuid import UUID, uuid5
@@ -33,6 +34,10 @@ class BatchReport:
     provider_calls: int
     source: str
     elapsed_seconds: float = 0.0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    concurrency: int = 0
+    retries: int = 0
 
 
 def stable_uuid(kind: str, key: str) -> UUID:
@@ -189,43 +194,31 @@ def ensure_permissions(
     )
 
 
-def _document_matches(conn, document, document_id, permission_set_id):
-    row = conn.execute(
-        """
-        SELECT id = %s
-           AND kind = %s
-           AND parent_document_id IS NULL
-           AND root_document_id = %s
-           AND permission_set_id = %s
-           AND title = %s
-           AND body = %s
-           AND author IS NOT DISTINCT FROM %s
-           AND url IS NOT DISTINCT FROM %s
-           AND container IS NOT DISTINCT FROM %s
-           AND raw_payload = %s
-           AND source_created_at IS NOT DISTINCT FROM %s::timestamptz
-           AND source_updated_at IS NOT DISTINCT FROM %s::timestamptz
-        FROM public.documents
-        WHERE source = %s AND external_id = %s
-        """,
-        (
-            document_id,
-            document.kind,
-            document_id,
-            permission_set_id,
-            document.title,
-            document.body,
-            document.author,
-            document.url,
-            document.container,
-            Jsonb(document.raw_payload),
-            document.created_at,
-            document.updated_at,
-            document.source,
-            document.external_id,
-        ),
-    ).fetchone()
-    return None if row is None else row[0]
+def _timestamp(value):
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _existing_documents(conn, rows):
+    result = {}
+    by_source = {}
+    for row in rows:
+        by_source.setdefault(row[1], []).append(row[3])
+    for source, external_ids in by_source.items():
+        for row in conn.execute(
+            """
+            SELECT source, external_id, id, kind, parent_document_id,
+                   root_document_id, permission_set_id, title, body, author,
+                   url, container, raw_payload, source_created_at,
+                   source_updated_at
+            FROM public.documents
+            WHERE source = %s AND external_id = ANY(%s)
+            """,
+            (source, external_ids),
+        ):
+            result[row[:2]] = row[2:]
+    return result
 
 
 def _existing_chunks(conn, rows):
@@ -277,7 +270,7 @@ def write_document_batch(conn, run, records, identities, embeddings):
         conn, (record.document.acl for record in records), identities
     )
 
-    document_rows, new_document_rows = [], []
+    document_rows = []
     for record in records:
         document = record.document
         document_id = stable_uuid(
@@ -300,13 +293,30 @@ def write_document_batch(conn, run, records, identities, embeddings):
             document.updated_at,
         )
         document_rows.append(document_row)
-        match = _document_matches(
-            conn, document, document_id, permission_id(document.acl)
+
+    existing_documents = _existing_documents(conn, document_rows)
+    new_document_rows = []
+    for row in document_rows:
+        existing = existing_documents.get((row[1], row[3]))
+        expected = (
+            row[0],
+            row[2],
+            None,
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            row[8],
+            row[9],
+            row[10],
+            row[11].obj,
+            _timestamp(row[12]),
+            _timestamp(row[13]),
         )
-        if match is False:
+        if existing is not None and existing != expected:
             raise ValueError("document content conflict")
-        if match is None:
-            new_document_rows.append(document_row)
+        if existing is None:
+            new_document_rows.append(row)
 
     _executemany(
         conn,
@@ -322,17 +332,6 @@ def write_document_batch(conn, run, records, identities, embeddings):
         """,
         new_document_rows,
     )
-    if any(
-        not _document_matches(
-            conn,
-            record.document,
-            document_row[0],
-            document_row[5],
-        )
-        for record, document_row in zip(records, document_rows, strict=True)
-    ):
-        raise ValueError("document content conflict")
-
     chunk_rows = []
     expected_sentences = []
     for record, document_row in zip(records, document_rows, strict=True):
@@ -393,11 +392,6 @@ def write_document_batch(conn, run, records, identities, embeddings):
         """,
         new_chunk_rows,
     )
-    if _existing_chunks(conn, chunk_rows) != {
-        row[:2]: (*row[2:7], row[7].obj) for row in chunk_rows
-    }:
-        raise ValueError("chunk content hash conflict")
-
     existing_sentences = _existing_sentences(conn, chunk_rows)
     expected_keys = {row[:3] for row in expected_sentences}
     if set(existing_sentences).difference(expected_keys):

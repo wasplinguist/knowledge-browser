@@ -330,7 +330,7 @@ def test_progress_callback_runs_after_commit_and_failure_resumes_safely(
 ):
     committed = []
     clock = iter((10.0, 11.25, 20.0, 21.5, 23.0))
-    monkeypatch.setattr(bulk_import.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(bulk_import, "monotonic", lambda: next(clock))
 
     def fail_after_first_commit(report):
         with connection_factory() as conn:
@@ -491,7 +491,7 @@ def test_failure_is_recorded_before_the_import_lock_is_released(
         ).fetchone() == ("failed", "batch_import_failed")
 
 
-def test_cache_rows_documents_and_progress_roll_back_together(
+def test_cache_persists_when_document_transaction_fails_and_resume_reuses_it(
     connection_factory, tiny_dataset, monkeypatch
 ):
     def fail_write(*_args, **_kwargs):
@@ -508,7 +508,7 @@ def test_cache_rows_documents_and_progress_roll_back_together(
         )
 
     with connection_factory() as conn:
-        assert conn.execute("SELECT count(*) FROM bulk_embedding_cache").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM bulk_embedding_cache").fetchone()[0] > 0
         assert conn.execute("SELECT count(*) FROM documents").fetchone() == (0,)
         progress = conn.execute(
             "SELECT next_line, next_offset FROM bulk_import_progress WHERE source = 'jira'"
@@ -517,6 +517,170 @@ def test_cache_rows_documents_and_progress_roll_back_together(
         assert conn.execute(
             "SELECT status, safe_error FROM bulk_import_runs"
         ).fetchone() == ("failed", "batch_import_failed")
+
+    requests_after_failure = list(FakeEmbeddingClient.requests)
+    monkeypatch.setattr(
+        bulk_import,
+        "write_document_batch",
+        write_document_batch,
+    )
+
+    assert run_import(
+        connection_factory,
+        tiny_dataset,
+        FakeEmbeddingClient,
+        document_batch_size=1,
+    ).complete is True
+    assert FakeEmbeddingClient.requests == requests_after_failure
+
+
+def test_provider_calls_run_with_no_database_transaction(
+    connection_factory, tiny_dataset
+):
+    importer_pids = []
+    observed_states = []
+
+    def tracked_connection_factory():
+        conn = connection_factory()
+        if not importer_pids:
+            importer_pids.append(conn.info.backend_pid)
+        return conn
+
+    class TransactionCheckingClient(FakeEmbeddingClient):
+        def create(self, **request):
+            with connection_factory() as observer:
+                observed_states.append(
+                    observer.execute(
+                        "SELECT state FROM pg_stat_activity WHERE pid = %s",
+                        (importer_pids[0],),
+                    ).fetchone()[0]
+                )
+            return super().create(**request)
+
+    assert run_import(
+        tracked_connection_factory,
+        tiny_dataset,
+        TransactionCheckingClient,
+        document_batch_size=1,
+        work_window_size=3,
+    ).complete is True
+    assert observed_states
+    assert set(observed_states) == {"idle"}
+
+
+def test_checkpoint_failure_replays_without_reembedding_or_duplicates(
+    connection_factory, tiny_dataset, monkeypatch
+):
+    original_save_progress = bulk_import.save_progress
+    failed_once = False
+
+    def fail_first_checkpoint(*args, **kwargs):
+        nonlocal failed_once
+        if not failed_once:
+            failed_once = True
+            raise RuntimeError("checkpoint failed")
+        return original_save_progress(*args, **kwargs)
+
+    monkeypatch.setattr(bulk_import, "save_progress", fail_first_checkpoint)
+    with pytest.raises(RuntimeError, match="checkpoint failed"):
+        run_import(
+            connection_factory,
+            tiny_dataset,
+            FakeEmbeddingClient,
+            document_batch_size=1,
+            work_window_size=3,
+        )
+
+    requests_after_failure = list(FakeEmbeddingClient.requests)
+    monkeypatch.setattr(bulk_import, "save_progress", original_save_progress)
+    final = run_import(
+        connection_factory,
+        tiny_dataset,
+        FakeEmbeddingClient,
+        document_batch_size=1,
+        work_window_size=3,
+    )
+
+    assert final.complete is True
+    assert FakeEmbeddingClient.requests == requests_after_failure
+    with connection_factory() as conn:
+        assert conn.execute("SELECT count(*) FROM documents").fetchone() == (3,)
+        assert conn.execute(
+            """
+            SELECT count(*) FROM (
+                SELECT source, external_id
+                FROM documents
+                GROUP BY source, external_id
+                HAVING count(*) > 1
+            ) AS duplicates
+            """
+        ).fetchone() == (0,)
+
+
+def test_work_window_deduplicates_across_document_batches(
+    connection_factory, tiny_dataset, monkeypatch
+):
+    window_sizes = []
+    original_collect = bulk_import.collect_sentences
+
+    def observed_collect(documents):
+        window_sizes.append(len(documents))
+        return original_collect(documents)
+
+    monkeypatch.setattr(bulk_import, "collect_sentences", observed_collect)
+    assert run_import(
+        connection_factory,
+        tiny_dataset,
+        FakeEmbeddingClient,
+        document_batch_size=1,
+        work_window_size=2,
+    ).complete is True
+
+    requested = [
+        sentence
+        for _, request in FakeEmbeddingClient.requests
+        for sentence in request
+    ]
+    assert window_sizes == [2, 1]
+    assert len(requested) == len(set(requested))
+
+
+def test_document_conflicts_are_checked_once_per_batch(
+    connection_factory, tiny_dataset
+):
+    document_reads = 0
+
+    class CountingConnection:
+        def __init__(self):
+            self.connection = connection_factory()
+
+        def __getattr__(self, name):
+            return getattr(self.connection, name)
+
+        def __enter__(self):
+            self.connection.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.connection.__exit__(*args)
+
+        def execute(self, query, params=None):
+            nonlocal document_reads
+            if (
+                "FROM public.documents" in query
+                and "external_id = ANY" in query
+            ):
+                document_reads += 1
+            return self.connection.execute(query, params)
+
+    assert run_import(
+        CountingConnection,
+        tiny_dataset,
+        FakeEmbeddingClient,
+        document_batch_size=3,
+        work_window_size=3,
+    ).complete is True
+    assert document_reads == 1
 
 
 def test_transient_provider_failure_stops_after_five_attempts_with_safe_state(

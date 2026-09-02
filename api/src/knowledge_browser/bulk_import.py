@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from itertools import islice
-import time
+from itertools import batched, islice
+from time import monotonic
 from uuid import UUID
 
 from .bulk_state import load_progress, save_progress, start_or_resume_run
@@ -15,7 +15,14 @@ from .bulk_writer import (
 )
 from .dataset import SOURCES, iter_artifacts
 from .db_compat import check_compatibility
-from .embedding_index import collect_sentences, embed_missing
+from .embedding_index import (
+    EmbeddingRequestConfig,
+    EmbeddingRequestResult,
+    collect_sentences,
+    load_cached_embeddings,
+    persist_embeddings,
+    request_missing_embeddings,
+)
 
 
 MODEL = "text-embedding-3-small"
@@ -38,34 +45,6 @@ class ImportResult:
     @property
     def provider_calls(self):
         return sum(batch.provider_calls for batch in self.batches)
-
-
-class _LazyEmbeddingClient:
-    def __init__(self, factory):
-        self._factory = factory
-        self._client = None
-        self._configured_client = None
-        self._options = {}
-        self.provider_calls = 0
-        self.embeddings = self
-
-    def with_options(self, **options):
-        self._options.update(options)
-        self._configured_client = None
-        return self
-
-    def create(self, **request):
-        if self._client is None:
-            self._client = self._factory()
-        if self._configured_client is None:
-            with_options = getattr(self._client, "with_options", None)
-            self._configured_client = (
-                with_options(**self._options)
-                if self._options and callable(with_options)
-                else self._client
-            )
-        self.provider_calls += 1
-        return self._configured_client.embeddings.create(**request)
 
 
 def _set_run_state(conn, run_id, status, safe_error=None):
@@ -148,6 +127,8 @@ def run_import(
     client_factory,
     document_batch_size=100,
     embedding_batch_size=100,
+    work_window_size=200,
+    request_config=None,
     stop_after_batches=None,
     progress_callback=None,
 ):
@@ -156,9 +137,14 @@ def run_import(
         raise ValueError("document_batch_size must be positive")
     if embedding_batch_size <= 0:
         raise ValueError("embedding_batch_size must be positive")
+    if work_window_size <= 0:
+        raise ValueError("work_window_size must be positive")
     if stop_after_batches is not None and stop_after_batches < 0:
         raise ValueError("stop_after_batches must not be negative")
-    started = time.monotonic()
+    started = monotonic()
+    request_config = request_config or EmbeddingRequestConfig(
+        max_inputs=embedding_batch_size
+    )
 
     run = None
     failure_recorded = False
@@ -174,7 +160,7 @@ def run_import(
                     identities = import_identities(conn, dataset.context)
 
                 reports = []
-                client = _LazyEmbeddingClient(client_factory)
+                client = None
                 if stop_after_batches == 0:
                     return ImportResult(run.id, False, ())
 
@@ -187,58 +173,93 @@ def run_import(
                         start_offset=progress.next_offset,
                         start_line=progress.next_line,
                     )
-                    while batch := tuple(islice(records, document_batch_size)):
-                        before_calls = client.provider_calls
+                    while window := tuple(islice(records, work_window_size)):
+                        window_sentences = collect_sentences(
+                            [record.document for record in window]
+                        )
                         with conn.transaction():
-                            embeddings = embed_missing(
-                                conn,
-                                run.id,
+                            cached = load_cached_embeddings(
+                                conn, run, window_sentences
+                            )
+                        missing = [
+                            sentence
+                            for sentence in window_sentences
+                            if sentence not in cached
+                        ]
+                        requested = EmbeddingRequestResult(
+                            {}, 0, 0, request_config.concurrency
+                        )
+                        if missing:
+                            if client is None:
+                                client = client_factory()
+                            requested = request_missing_embeddings(
                                 client,
                                 run.embedding_model,
-                                collect_sentences(
-                                    [record.document for record in batch]
-                                ),
-                                request_size=embedding_batch_size,
+                                missing,
+                                request_config,
                             )
-                            report = write_document_batch(
-                                conn, run, batch, identities, embeddings
-                            )
+                            with conn.transaction():
+                                persist_embeddings(conn, run, requested.vectors)
+                        embeddings = {**cached, **requested.vectors}
+
+                        first_batch = True
+                        for batch in batched(window, document_batch_size):
+                            with conn.transaction():
+                                report = write_document_batch(
+                                    conn, run, batch, identities, embeddings
+                                )
+                                save_progress(
+                                    conn,
+                                    run.id,
+                                    source,
+                                    next_line=report.next_line,
+                                    next_offset=report.next_offset,
+                                    documents=(
+                                        progress.documents + report.documents
+                                    ),
+                                    chunks=progress.chunks + report.chunks,
+                                    sentences=(
+                                        progress.sentences + report.sentences
+                                    ),
+                                )
                             report = replace(
                                 report,
+                                elapsed_seconds=monotonic() - started,
                                 provider_calls=(
-                                    client.provider_calls - before_calls
+                                    requested.provider_requests
+                                    if first_batch
+                                    else 0
                                 ),
+                                cache_hits=len(cached) if first_batch else 0,
+                                cache_misses=len(missing) if first_batch else 0,
+                                concurrency=(
+                                    requested.concurrency if first_batch else 0
+                                ),
+                                retries=requested.retries if first_batch else 0,
                             )
-                            save_progress(
-                                conn,
-                                run.id,
-                                source,
+                            first_batch = False
+                            if progress_callback is not None:
+                                progress_callback(report)
+                            reports.append(report)
+                            progress = replace(
+                                progress,
                                 next_line=report.next_line,
                                 next_offset=report.next_offset,
-                                documents=progress.documents + report.documents,
+                                documents=(
+                                    progress.documents + report.documents
+                                ),
                                 chunks=progress.chunks + report.chunks,
-                                sentences=progress.sentences + report.sentences,
+                                sentences=(
+                                    progress.sentences + report.sentences
+                                ),
                             )
-                        report = replace(
-                            report,
-                            elapsed_seconds=time.monotonic() - started,
-                        )
-                        if progress_callback is not None:
-                            progress_callback(report)
-                        reports.append(report)
-                        progress = replace(
-                            progress,
-                            next_line=report.next_line,
-                            next_offset=report.next_offset,
-                            documents=progress.documents + report.documents,
-                            chunks=progress.chunks + report.chunks,
-                            sentences=progress.sentences + report.sentences,
-                        )
-                        if (
-                            stop_after_batches is not None
-                            and len(reports) >= stop_after_batches
-                        ):
-                            return ImportResult(run.id, False, tuple(reports))
+                            if (
+                                stop_after_batches is not None
+                                and len(reports) >= stop_after_batches
+                            ):
+                                return ImportResult(
+                                    run.id, False, tuple(reports)
+                                )
                     source_size = (
                         dataset.root / "artifacts" / f"{source}.jsonl"
                     ).stat().st_size
