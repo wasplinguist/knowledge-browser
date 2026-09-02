@@ -38,6 +38,8 @@ class BatchReport:
     cache_misses: int = 0
     concurrency: int = 0
     retries: int = 0
+    sentences_per_second: float = 0.0
+    estimated_remaining_seconds: float = 0.0
 
 
 def stable_uuid(kind: str, key: str) -> UUID:

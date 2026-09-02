@@ -17,6 +17,8 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimi
 
 
 MAX_EMBEDDING_CONCURRENCY = 16
+MAX_EMBEDDING_INPUTS = 2048
+MAX_ESTIMATED_TOKENS = 300_000
 MAX_PROVIDER_REQUESTS = 5
 MAX_RETRY_DELAY = 2.0
 
@@ -31,9 +33,9 @@ class EmbeddingResponseError(ValueError):
 
 @dataclass(frozen=True)
 class EmbeddingRequestConfig:
-    concurrency: int = 4
-    max_inputs: int = 100
-    max_estimated_tokens: int = 20_000
+    concurrency: int = 8
+    max_inputs: int = 512
+    max_estimated_tokens: int = 50_000
     connect_timeout: float = 10.0
     read_timeout: float = 60.0
     write_timeout: float = 30.0
@@ -42,10 +44,12 @@ class EmbeddingRequestConfig:
     def __post_init__(self) -> None:
         if not 1 <= self.concurrency <= MAX_EMBEDDING_CONCURRENCY:
             raise ValueError("concurrency must be between 1 and 16")
-        if self.max_inputs <= 0:
-            raise ValueError("max_inputs must be positive")
-        if self.max_estimated_tokens <= 0:
-            raise ValueError("max_estimated_tokens must be positive")
+        if not 1 <= self.max_inputs <= MAX_EMBEDDING_INPUTS:
+            raise ValueError("max_inputs must be between 1 and 2048")
+        if not 1 <= self.max_estimated_tokens <= MAX_ESTIMATED_TOKENS:
+            raise ValueError(
+                "max_estimated_tokens must be between 1 and 300000"
+            )
         for name in (
             "connect_timeout",
             "read_timeout",

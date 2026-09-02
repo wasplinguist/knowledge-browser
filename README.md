@@ -101,6 +101,15 @@ Redwood service.
 ./scripts/redwood_database.sh stop
 ```
 
+The `run` command uses a bounded 200-document work window, eight embedding
+requests at a time, up to 512 inputs and 50,000 estimated tokens per request.
+Use the `--work-window-size`, `--embedding-concurrency`,
+`--embedding-max-inputs`, `--embedding-max-tokens`, and
+`--embedding-*-timeout` flags to lower these safe limits. Progress shows cache
+hits, provider requests, retries, sentence throughput, and estimated time
+remaining. `status` reports `running`, `stalled`, `failed`, `indexing`, or
+`complete`.
+
 `reset` first validates the complete dataset and then requires `--yes`. It
 refuses every database name except `knowledge_redwood`. The import saves each
 completed batch, so running `run` again continues from the last saved line.

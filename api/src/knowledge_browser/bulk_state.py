@@ -244,3 +244,13 @@ def save_progress(
         "UPDATE public.bulk_import_runs SET updated_at = pg_catalog.now() WHERE id = %s",
         (run_id,),
     )
+
+
+def touch_run(conn, run_id) -> None:
+    """Refresh the safe operator heartbeat inside a short transaction."""
+    result = conn.execute(
+        "UPDATE public.bulk_import_runs SET updated_at = pg_catalog.now() WHERE id = %s",
+        (run_id,),
+    )
+    if result.rowcount != 1:
+        raise BulkStateError("bulk import run is missing")

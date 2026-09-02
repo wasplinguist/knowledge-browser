@@ -260,6 +260,21 @@ def test_scheduler_rejects_concurrency_outside_the_hard_bound(concurrency):
 
 
 @pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"max_inputs": 2049}, "max_inputs must be between 1 and 2048"),
+        (
+            {"max_estimated_tokens": 300_001},
+            "max_estimated_tokens must be between 1 and 300000",
+        ),
+    ],
+)
+def test_scheduler_rejects_request_sizes_outside_hard_bounds(change, message):
+    with pytest.raises(ValueError, match=message):
+        _config(**change)
+
+
+@pytest.mark.parametrize(
     ("indexes", "dimensions", "message"),
     [
         ([1], 1536, "invalid indexes"),

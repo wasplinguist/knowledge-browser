@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -15,6 +16,12 @@ from .bulk_state import assert_redwood_database, reset_redwood_database
 from .bulk_verify import MAX_P95_MS, verify_redwood
 from .config import database_url
 from .dataset import validate_streaming_dataset
+from .embedding_index import (
+    MAX_EMBEDDING_CONCURRENCY,
+    MAX_EMBEDDING_INPUTS,
+    MAX_ESTIMATED_TOKENS,
+    EmbeddingRequestConfig,
+)
 from .profiles import load_profile
 
 
@@ -31,6 +38,7 @@ SAFE_ERRORS = {
     "embedding_provider_invalid_response",
     "missing_api_key",
 }
+STALL_AFTER_SECONDS = 150.0
 FAILURES = {
     "invalid_manifest": (
         "Redwood command failed: reason=invalid_manifest; "
@@ -114,6 +122,29 @@ def _add_database_argument(parser):
     parser.add_argument("--database-url", help=argparse.SUPPRESS)
 
 
+def _bounded_int(name, maximum=None):
+    def parse(value):
+        number = int(value)
+        if number < 1 or (maximum is not None and number > maximum):
+            limit = f" and at most {maximum}" if maximum is not None else ""
+            raise argparse.ArgumentTypeError(
+                f"{name} must be positive{limit}"
+            )
+        return number
+
+    return parse
+
+
+def _positive_float(name):
+    def parse(value):
+        number = float(value)
+        if number <= 0 or not math.isfinite(number):
+            raise argparse.ArgumentTypeError(f"{name} must be positive")
+        return number
+
+    return parse
+
+
 def _parser():
     parser = argparse.ArgumentParser(description="Manage the Redwood import database.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -128,8 +159,42 @@ def _parser():
 
     run = commands.add_parser("run")
     run.add_argument("--data", type=Path, default=DEFAULT_DATA)
-    run.add_argument("--document-batch-size", type=int, default=100)
-    run.add_argument("--embedding-batch-size", type=int, default=100)
+    defaults = EmbeddingRequestConfig()
+    run.add_argument(
+        "--document-batch-size", type=_bounded_int("document batch size"), default=100
+    )
+    run.add_argument(
+        "--embedding-batch-size", type=_bounded_int("embedding batch size"), default=100
+    )
+    run.add_argument(
+        "--work-window-size", type=_bounded_int("work window size"), default=200
+    )
+    run.add_argument(
+        "--embedding-concurrency",
+        type=_bounded_int("embedding concurrency", MAX_EMBEDDING_CONCURRENCY),
+        default=defaults.concurrency,
+    )
+    run.add_argument(
+        "--embedding-max-inputs",
+        type=_bounded_int("embedding max inputs", MAX_EMBEDDING_INPUTS),
+        default=defaults.max_inputs,
+    )
+    run.add_argument(
+        "--embedding-max-tokens",
+        type=_bounded_int("embedding max tokens", MAX_ESTIMATED_TOKENS),
+        default=defaults.max_estimated_tokens,
+    )
+    for flag, default in (
+        ("connect", defaults.connect_timeout),
+        ("read", defaults.read_timeout),
+        ("write", defaults.write_timeout),
+        ("total", defaults.total_timeout),
+    ):
+        run.add_argument(
+            f"--embedding-{flag}-timeout",
+            type=_positive_float(f"embedding {flag} timeout"),
+            default=default,
+        )
     _add_database_argument(run)
 
     status = commands.add_parser("status")
@@ -146,9 +211,13 @@ def _print_batch(report):
     print(
         f"source={report.source} next_line={report.next_line} "
         f"documents={report.documents} chunks={report.chunks} "
-        f"sentences={report.sentences} "
-        f"elapsed_seconds={report.elapsed_seconds:.2f} "
-        f"provider_calls={report.provider_calls}",
+        f"sentences={report.sentences} cache_hits={report.cache_hits} "
+        f"cache_misses={report.cache_misses} "
+        f"provider_requests={report.provider_calls} "
+        f"concurrency={report.concurrency} retries={report.retries} "
+        f"sentences_per_second={report.sentences_per_second:.2f} "
+        f"estimated_remaining_seconds={report.estimated_remaining_seconds:.2f} "
+        f"elapsed_seconds={report.elapsed_seconds:.2f}",
         flush=True,
     )
 
@@ -173,7 +242,8 @@ def _print_status(url):
             """
             SELECT id, status, safe_error, dataset_version, manifest_digest,
                    embedding_model, embedding_dimensions,
-                   EXTRACT(EPOCH FROM (pg_catalog.now() - started_at))
+                   EXTRACT(EPOCH FROM (pg_catalog.now() - started_at)),
+                   EXTRACT(EPOCH FROM (pg_catalog.now() - updated_at))
             FROM public.bulk_import_runs
             ORDER BY started_at DESC
             LIMIT 1
@@ -191,7 +261,14 @@ def _print_status(url):
             embedding_model,
             dimensions,
             elapsed,
+            updated_age,
         ) = run
+        if status == "loading":
+            status = (
+                "stalled"
+                if float(updated_age) > STALL_AFTER_SECONDS
+                else "running"
+            )
         safe_error = safe_error if safe_error in SAFE_ERRORS else None
         suffix = f" safe_error={safe_error}" if safe_error else ""
         print(
@@ -254,12 +331,23 @@ def main(argv=None):
             dataset = _validated_dataset(args.data)
             url = _database_url(args)
             assert_redwood_database(url)
+            request_config = EmbeddingRequestConfig(
+                concurrency=args.embedding_concurrency,
+                max_inputs=args.embedding_max_inputs,
+                max_estimated_tokens=args.embedding_max_tokens,
+                connect_timeout=args.embedding_connect_timeout,
+                read_timeout=args.embedding_read_timeout,
+                write_timeout=args.embedding_write_timeout,
+                total_timeout=args.embedding_total_timeout,
+            )
             result = run_import(
                 _connection_factory(url),
                 dataset,
                 _openai_client,
                 document_batch_size=args.document_batch_size,
                 embedding_batch_size=args.embedding_batch_size,
+                work_window_size=args.work_window_size,
+                request_config=request_config,
                 progress_callback=_print_batch,
             )
             _print_run(result)

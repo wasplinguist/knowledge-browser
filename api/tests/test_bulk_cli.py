@@ -216,7 +216,20 @@ def test_run_prints_safe_batch_progress(monkeypatch, tmp_path, capsys):
         (artifacts / f"{source}.jsonl").write_bytes(b"")
     _safe_cli(monkeypatch, SimpleNamespace(root=tmp_path))
     report = BatchReport(
-        2, 3, 4, 3, 8, 2, "slack", elapsed_seconds=1.25
+        2,
+        3,
+        4,
+        3,
+        8,
+        2,
+        "slack",
+        elapsed_seconds=1.25,
+        cache_hits=5,
+        cache_misses=6,
+        concurrency=4,
+        retries=1,
+        sentences_per_second=3.2,
+        estimated_remaining_seconds=9.5,
     )
     observed_during_run = []
 
@@ -236,7 +249,9 @@ def test_run_prints_safe_batch_progress(monkeypatch, tmp_path, capsys):
     assert bulk_cli.main(["run", "--data", str(tmp_path)]) == 0
     assert observed_during_run == [
         "source=slack next_line=3 documents=2 chunks=3 sentences=4 "
-        "elapsed_seconds=1.25 provider_calls=2\n"
+        "cache_hits=5 cache_misses=6 provider_requests=2 concurrency=4 "
+        "retries=1 sentences_per_second=3.20 "
+        "estimated_remaining_seconds=9.50 elapsed_seconds=1.25\n"
     ]
     output = capsys.readouterr().out
     assert "source=slack" not in output
@@ -265,6 +280,12 @@ def test_resumed_run_prints_the_batch_source_not_the_first_dataset_source(
             next_offset=999,
             provider_calls=1,
             elapsed_seconds=1.0,
+            cache_hits=0,
+            cache_misses=0,
+            concurrency=8,
+            retries=0,
+            sentences_per_second=3.0,
+            estimated_remaining_seconds=10.0,
         )
         callback = kwargs.get("progress_callback")
         if callback:
@@ -296,6 +317,10 @@ class _StatusRows:
 
 
 class _StatusConnection:
+    def __init__(self, status="loading", updated_age=5.0):
+        self.status = status
+        self.updated_age = updated_age
+
     def __enter__(self):
         return self
 
@@ -309,13 +334,14 @@ class _StatusConnection:
             return _StatusRows(
                 one=(
                     "run-1",
-                    "loading",
+                    self.status,
                     None,
                     "redwood-v1",
                     "abc123",
                     "text-embedding-3-small",
                     1536,
                     12.5,
+                    self.updated_age,
                 )
             )
         return _StatusRows(rows=(("jira", 42, 10, 20, 30),))
@@ -338,11 +364,99 @@ def test_status_prints_safe_manifest_identity_without_embedding_client(
 
     assert bulk_cli.main(["status"]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        "run=run-1 status=loading dataset_version=redwood-v1 "
+        "run=run-1 status=running dataset_version=redwood-v1 "
         "manifest_digest=abc123 embedding_model=text-embedding-3-small "
         "dimensions=1536 elapsed_seconds=12.50",
         "source=jira next_line=42 documents=10 chunks=20 sentences=30",
     ]
+
+
+@pytest.mark.parametrize(
+    ("database_status", "updated_age", "shown_status"),
+    [
+        ("loading", 5.0, "running"),
+        ("loading", 500.0, "stalled"),
+        ("failed", 5.0, "failed"),
+        ("indexing", 5.0, "indexing"),
+        ("complete", 5.0, "complete"),
+    ],
+)
+def test_status_distinguishes_operator_states(
+    monkeypatch, capsys, database_status, updated_age, shown_status
+):
+    monkeypatch.setattr(bulk_cli, "database_url", lambda: REDWOOD_URL)
+    monkeypatch.setattr(
+        bulk_cli.psycopg,
+        "connect",
+        lambda _url: _StatusConnection(database_status, updated_age),
+    )
+
+    assert bulk_cli.main(["status"]) == 0
+    assert f"status={shown_status}" in capsys.readouterr().out.splitlines()[0]
+
+
+def test_run_forwards_bounded_embedding_settings(monkeypatch):
+    _safe_cli(monkeypatch)
+    received = []
+    monkeypatch.setattr(
+        bulk_cli,
+        "run_import",
+        lambda *_args, **kwargs: received.append(kwargs)
+        or SimpleNamespace(
+            run_id="run-1", complete=True, batches=(), provider_calls=0
+        ),
+    )
+
+    assert bulk_cli.main(
+        [
+            "run",
+            "--data",
+            "/safe/data",
+            "--work-window-size",
+            "300",
+            "--embedding-concurrency",
+            "8",
+            "--embedding-max-inputs",
+            "512",
+            "--embedding-max-tokens",
+            "50000",
+            "--embedding-connect-timeout",
+            "4",
+            "--embedding-read-timeout",
+            "30",
+            "--embedding-write-timeout",
+            "20",
+            "--embedding-total-timeout",
+            "90",
+        ]
+    ) == 0
+    assert received[0]["work_window_size"] == 300
+    assert received[0]["request_config"] == bulk_cli.EmbeddingRequestConfig(
+        concurrency=8,
+        max_inputs=512,
+        max_estimated_tokens=50_000,
+        connect_timeout=4.0,
+        read_timeout=30.0,
+        write_timeout=20.0,
+        total_timeout=90.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--work-window-size", "0"],
+        ["--embedding-concurrency", "17"],
+        ["--embedding-max-inputs", "2049"],
+        ["--embedding-max-tokens", "300001"],
+        ["--embedding-total-timeout", "0"],
+        ["--embedding-total-timeout", "nan"],
+    ],
+)
+def test_run_rejects_unsafe_settings_during_argument_parsing(options):
+    with pytest.raises(SystemExit) as captured:
+        bulk_cli._parser().parse_args(["run", *options])
+    assert captured.value.code == 2
 
 
 def test_reset_uses_one_atomic_schema_operation(monkeypatch, tmp_path):

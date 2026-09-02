@@ -7,7 +7,12 @@ from itertools import batched, islice
 from time import monotonic
 from uuid import UUID
 
-from .bulk_state import load_progress, save_progress, start_or_resume_run
+from .bulk_state import (
+    load_progress,
+    save_progress,
+    start_or_resume_run,
+    touch_run,
+)
 from .bulk_writer import (
     BatchReport,
     import_identities,
@@ -161,12 +166,24 @@ def run_import(
 
                 reports = []
                 client = None
+                with conn.transaction():
+                    initial_progress = {
+                        source: load_progress(conn, run.id, source)
+                        for source in SOURCES
+                    }
+                completed_documents = sum(
+                    item.documents for item in initial_progress.values()
+                )
+                session_documents = 0
+                session_sentences = 0
+                total_documents = dataset.manifest.get("counts", {}).get(
+                    "artifacts", 0
+                )
                 if stop_after_batches == 0:
                     return ImportResult(run.id, False, ())
 
                 for source in SOURCES:
-                    with conn.transaction():
-                        progress = load_progress(conn, run.id, source)
+                    progress = initial_progress[source]
                     records = iter_artifacts(
                         dataset,
                         source,
@@ -200,6 +217,7 @@ def run_import(
                             )
                             with conn.transaction():
                                 persist_embeddings(conn, run, requested.vectors)
+                                touch_run(conn, run.id)
                         embeddings = {**cached, **requested.vectors}
 
                         first_batch = True
@@ -222,9 +240,19 @@ def run_import(
                                         progress.sentences + report.sentences
                                     ),
                                 )
+                            elapsed = monotonic() - started
+                            completed_documents += report.documents
+                            session_documents += report.documents
+                            session_sentences += report.sentences
+                            document_rate = (
+                                session_documents / elapsed if elapsed else 0.0
+                            )
+                            remaining_documents = max(
+                                total_documents - completed_documents, 0
+                            )
                             report = replace(
                                 report,
-                                elapsed_seconds=monotonic() - started,
+                                elapsed_seconds=elapsed,
                                 provider_calls=(
                                     requested.provider_requests
                                     if first_batch
@@ -236,6 +264,16 @@ def run_import(
                                     requested.concurrency if first_batch else 0
                                 ),
                                 retries=requested.retries if first_batch else 0,
+                                sentences_per_second=(
+                                    session_sentences / elapsed
+                                    if elapsed
+                                    else 0.0
+                                ),
+                                estimated_remaining_seconds=(
+                                    remaining_documents / document_rate
+                                    if document_rate
+                                    else 0.0
+                                ),
                             )
                             first_batch = False
                             if progress_callback is not None:

@@ -70,7 +70,7 @@ def tiny_dataset(tmp_path, validated_company):
         )
     return ValidatedDataset(
         root=tmp_path,
-        manifest={"dataset_version": "tiny-v1"},
+        manifest={"dataset_version": "tiny-v1", "counts": {"artifacts": 3}},
         manifest_digest="tiny-manifest",
         context=validated_company.context,
     )
@@ -374,11 +374,17 @@ def test_progress_callback_runs_after_commit_and_failure_resumes_safely(
 
     assert committed == [("jira", 2, 1.25, (2, 1), 1)]
     assert [
-        (report.source, report.next_line, report.elapsed_seconds)
+        (
+            report.source,
+            report.next_line,
+            report.elapsed_seconds,
+            report.sentences_per_second > 0,
+            report.estimated_remaining_seconds,
+        )
         for report in resumed_reports
     ] == [
-        ("jira", 3, 1.5),
-        ("jira", 4, 3.0),
+        ("jira", 3, 1.5, True, 1.5),
+        ("jira", 4, 3.0, True, 0.0),
     ]
     assert final.complete is True
     requested_sentences = [

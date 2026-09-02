@@ -17,6 +17,7 @@ from knowledge_browser.bulk_state import (
     reset_redwood_database,
     save_progress,
     start_or_resume_run,
+    touch_run,
 )
 
 
@@ -416,6 +417,20 @@ def test_save_and_load_progress(db, run):
         chunks=14,
         sentences=21,
     )
+
+
+def test_touch_run_refreshes_the_stall_heartbeat(db, run):
+    db.execute(
+        "UPDATE bulk_import_runs SET updated_at = '2000-01-01' WHERE id = %s",
+        (run.id,),
+    )
+
+    touch_run(db, run.id)
+
+    assert db.execute(
+        "SELECT updated_at > '2000-01-01' FROM bulk_import_runs WHERE id = %s",
+        (run.id,),
+    ).fetchone() == (True,)
 
 
 def test_progress_and_rows_rollback_together(db, run):
