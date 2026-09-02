@@ -13,13 +13,13 @@ never changed.
 
 ## Evidence
 
-- The current manifest contains 49,448 artifacts, including 30,087 Slack
+- The current manifest contains 13,214 artifacts, including 4,182 Slack
   records, and has digest
-  `b51f0c6732d944969f592c769ebd394471eb3c7ee4ebf0addd647bb7865c9a43`.
-- The stopped import has a valid committed Slack checkpoint at 800 documents,
-  41,914 chunks, and 70,252 sentences. The handoff observed 700 documents
-  before the final in-flight transaction committed; the newer database
-  checkpoint is authoritative and must not be reset.
+  `5ca6db71698f7e496696313feb427df011f051a9eecd2cb8d882afec5ed0e753`.
+- The existing isolated database still has an older, incompatible manifest
+  checkpoint at 800 Slack documents, 41,914 chunks, and 70,252 sentences. It
+  remains preserved until the operator explicitly replaces it for the new
+  smaller manifest.
 - The existing importer reads every JSONL file, parsed document, unique
   sentence, and embedding into memory before one large transaction.
 - A 100-document Redwood pilot loaded successfully into the isolated
@@ -122,7 +122,7 @@ Product-intent checklist:
    complete Redwood company corpus.
 2. Affected intents: known items, facts, ownership, project status, decisions,
    troubleshooting, cross-service evidence, aliases, recency, and tacit terms.
-3. Evidence: the current local corpus has 49,448 artifacts; the 100-document
+3. Evidence: the current local corpus has 13,214 artifacts; the 100-document
    pilot and preserved checkpoint prove schema and embedding compatibility.
 4. Target metric: the expected document appears in the top 10 for accessible
    questions in `qa.jsonl`, with zero ACL leaks. Report recall@10 and MRR.
@@ -136,7 +136,7 @@ Intent auditor verdict:
 
 ```text
 Verdict: ALIGNED
-Evidence: 49,448 manifest-declared artifacts, a successful pilot, and a preserved checkpoint
+Evidence: 13,214 manifest-declared artifacts, a successful pilot, and a preserved older checkpoint
 Affected intents: all supported company-knowledge retrieval intents
 Metric: Redwood recall@10 and MRR, zero ACL leaks, and measured local search latency
 Regression risk: lower precision or slower retrieval on the much larger corpus
@@ -159,7 +159,7 @@ model and sentences not already stored in the resumable import cache.
 
 ## Acceptance criteria
 
-- The preserved Redwood database imports exactly 49,448 documents from all four
+- The Redwood database imports exactly 13,214 documents from all four
   sources without changing the normal database.
 - The process can be stopped after a committed batch and resumed without
   duplicate documents, chunks, sentences, permission mappings, or API work for
