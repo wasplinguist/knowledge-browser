@@ -15,7 +15,7 @@ postgres-data/
 .worktrees/
 .superpowers/
 data/*
-!data/company/
-!data/company/**
+!data/redwood/
+!data/redwood/**
 data/.cache/
 docs/superpowers/

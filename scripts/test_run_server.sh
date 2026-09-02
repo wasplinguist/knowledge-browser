@@ -57,7 +57,7 @@ cat >"$tmp/python" <<'EOF'
 case " $* " in
   *" knowledge_browser.config "*) printf '%s\n' "${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/knowledge_search}" ;;
   *" SELECT 1 "*) exit 0 ;;
-  *" pg_tables "*) echo 11 ;;
+  *" pg_tables "*) echo 14 ;;
 esac
 printf 'python DATABASE_URL=%s %s\n' "${DATABASE_URL:-}" "$*" >>"$FAKE_LOG"
 EOF

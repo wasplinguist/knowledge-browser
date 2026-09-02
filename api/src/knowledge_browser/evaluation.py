@@ -89,6 +89,8 @@ def evaluate_queries(
         forbidden = sorted(set(ranked).intersection(query.get("must_not_appear", [])))
         per_query.append({
             "id": query["id"],
+            "family": query.get("type", "unspecified"),
+            "scored": bool(relevant),
             "ranked": ranked,
             "forbidden": forbidden,
             "metrics": {
@@ -99,6 +101,21 @@ def evaluate_queries(
         })
 
     metric_names = ("mrr@10", "ndcg@10", "recall@10")
+    scored_queries = [row for row in per_query if row["scored"]]
+    families = {}
+    for family in sorted({row["family"] for row in per_query}):
+        rows = [row for row in per_query if row["family"] == family]
+        scored_rows = [row for row in rows if row["scored"]]
+        families[family] = {
+            "query_count": len(rows),
+            "scored_query_count": len(scored_rows),
+            **{
+                name: _mean(row["metrics"][name] for row in scored_rows)
+                if scored_rows else None
+                for name in metric_names
+            },
+            "forbidden_leaks": sum(len(row["forbidden"]) for row in rows),
+        }
     ordered_latency = sorted(latencies)
     percentile = lambda fraction: ordered_latency[
         max(0, math.ceil(len(ordered_latency) * fraction) - 1)
@@ -106,9 +123,11 @@ def evaluate_queries(
     return {
         "profile": profile,
         "query_count": len(per_query),
+        "scored_query_count": len(scored_queries),
+        "families": families,
         "overall": {
             **{
-                name: _mean(row["metrics"][name] for row in per_query)
+                name: _mean(row["metrics"][name] for row in scored_queries)
                 for name in metric_names
             },
             "forbidden_leaks": sum(len(row["forbidden"]) for row in per_query),

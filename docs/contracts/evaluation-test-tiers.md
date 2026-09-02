@@ -16,7 +16,7 @@ or permission regressions.
   evaluation, full ACL, and nightly checks.
 - Require every API test to have exactly one primary group.
 - Add a small committed golden-query set for deterministic pull-request checks
-  and keep the full 603-query definitions for manual/nightly native evaluation.
+  and keep the full 298-query definitions for manual/nightly native evaluation.
 - Add pure retrieval metrics and released-versus-candidate comparison.
 - Add an entitlement oracle that is independent from production ACL SQL.
 - Add focused search and RAG evaluation tests with fake providers only.
@@ -27,7 +27,7 @@ or permission regressions.
 ## Non-goals
 
 - Running the exhaustive native-corpus ACL scan in this feature session.
-- Committing generated evaluation reports or saved scores. The complete 603-query
+- Committing generated evaluation reports or saved scores. The complete 298-query
   definitions remain versioned evaluation inputs.
 - Claiming small fixtures beat Jira, Slack, Confluence, or GitHub search.
 - Changing search, ranking, ACL SQL, schema, ingestion, or answer behavior.
@@ -44,7 +44,7 @@ also belongs to `search_eval` and `nightly`.
 - `search_eval`: retrieval metrics, golden queries, comparison, and search
   quality gates.
 - `rag_eval`: grounded-answer evidence and citation quality using fake clients.
-- `full_retrieval`: complete 603-query native retrieval quality and latency.
+- `full_retrieval`: complete 298-query native retrieval quality and latency.
 - `full_acl`: exhaustive configured-corpus entitlement/search comparison.
 - `nightly`: too slow for normal pull requests.
 

@@ -8,7 +8,7 @@ import pytest
 from knowledge_browser.dataset import iter_artifacts, validate_streaming_dataset
 
 
-DATASET = Path(__file__).parents[2] / "data" / "company"
+DATASET = Path(__file__).parents[2] / "data" / "redwood"
 pytestmark = pytest.mark.unit
 
 
@@ -31,7 +31,7 @@ def test_streaming_validation_does_not_read_whole_artifact_files(monkeypatch):
 
     monkeypatch.setattr(Path, "read_bytes", guarded)
 
-    assert validate_streaming_dataset(DATASET).manifest["counts"]["artifacts"] == 1000
+    assert validate_streaming_dataset(DATASET).manifest["counts"]["artifacts"] == 13214
 
 
 def test_iterator_resumes_at_saved_offset():
@@ -45,7 +45,7 @@ def test_iterator_resumes_at_saved_offset():
 
 
 def test_streaming_validation_rejects_duplicate_artifact_ids_across_sources(tmp_path: Path):
-    copied = shutil.copytree(DATASET, tmp_path / "company")
+    copied = shutil.copytree(DATASET, tmp_path / "redwood")
     jira = json.loads((copied / "artifacts" / "jira.jsonl").read_text(encoding="utf-8").splitlines()[0])
     github_path = copied / "artifacts" / "github.jsonl"
     github = [json.loads(line) for line in github_path.read_text(encoding="utf-8").splitlines()]

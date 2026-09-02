@@ -12,6 +12,7 @@ from knowledge_browser.bulk_state import (
     BulkRun,
     BulkStateError,
     Progress,
+    assert_import_database,
     assert_redwood_database,
     configure_run,
     load_progress,
@@ -63,6 +64,21 @@ def test_reset_guard_accepts_exact_redwood_database():
     assert_redwood_database(
         "postgresql://postgres:postgres@localhost/knowledge_redwood"
     )
+
+
+@pytest.mark.parametrize("name", ["knowledge_search", "knowledge_redwood"])
+def test_import_guard_accepts_product_database_names(name):
+    assert_import_database(
+        f"postgresql://postgres:postgres@localhost/{name}"
+    )
+
+
+@pytest.mark.parametrize("name", ["postgres", "knowledge_redwood_test"])
+def test_import_guard_refuses_unrelated_database_names(name):
+    with pytest.raises(BulkStateError, match="approved product database"):
+        assert_import_database(
+            f"postgresql://postgres:postgres@localhost/{name}"
+        )
 
 
 def test_reset_rebuilds_only_the_dedicated_test_database(

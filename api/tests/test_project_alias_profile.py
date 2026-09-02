@@ -10,7 +10,7 @@ from knowledge_browser.profiles import expand_query, load_profile
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).parents[2]
-CATALOG = ROOT / "data" / "company" / "projects.jsonl"
+CATALOG = ROOT / "data" / "redwood" / "projects.jsonl"
 CANDIDATE = ROOT / "search" / "profiles" / "candidates" / "project-aliases-v1.json"
 
 
@@ -22,8 +22,7 @@ def _catalog_expansions() -> dict[str, str]:
         canonical = project["name"]
         aliases = {
             *project["aliases"],
-            project["jira_key"],
-            project["repository"],
+            *(value for key in ("jira_key", "repository") if (value := project.get(key))),
             *(alias for values in project["aliases_by_source"].values() for alias in values),
         }
         for alias in aliases:
@@ -61,14 +60,12 @@ def test_candidate_does_not_reexpand_canonical_project_names():
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
-        ("NIMREL incident", "Nimbus Relay incident"),
-        ("nimbus-relay incident", "Nimbus Relay incident"),
-        ("Nimbus Relay Program incident", "Nimbus Relay incident"),
-        ("copperline/nimbus-relay incident", "Nimbus Relay incident"),
-        ("PR review", "Prism Rules review"),
-        ("pr review", "pr review"),
-        ("PR-401 status", "PR-401 status"),
-        ("NIMRELATION status", "NIMRELATION status"),
+        ("eng-runtime incident", "Serving Runtime incident"),
+        ("REDWOOD-MODEL-REGISTRY status", "Serving Runtime status"),
+        ("architecture review", "Platform review"),
+        ("devex guide", "Developer Experience guide"),
+        ("architecture-401 status", "architecture-401 status"),
+        ("preeng-runtime status", "preeng-runtime status"),
     ],
 )
 def test_candidate_expands_only_complete_alias_terms(query: str, expected: str):

@@ -1,4 +1,4 @@
-"""Validate and read the checked-in canonical company dataset."""
+"""Validate and read the checked-in Redwood dataset."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ class ArtifactRecord:
 
 
 def _error(message: str) -> ValueError:
-    return ValueError(f"invalid company dataset: {message}")
+    return ValueError(f"invalid Redwood dataset: {message}")
 
 
 def _json_file(path: Path) -> dict[str, Any]:

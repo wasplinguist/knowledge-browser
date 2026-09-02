@@ -11,7 +11,7 @@ from knowledge_browser.bulk_writer import (
 )
 
 
-DATA = Path(__file__).parents[2] / "data" / "company"
+DATA = Path(__file__).parents[2] / "data" / "redwood"
 pytestmark = pytest.mark.integration
 
 

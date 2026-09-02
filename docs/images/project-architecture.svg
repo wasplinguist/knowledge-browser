@@ -26,7 +26,7 @@
 
   <rect width="1600" height="1000" rx="30" fill="#f8fafc"/>
   <text x="70" y="70" class="title">Project architecture</text>
-  <text x="70" y="106" class="subtitle">Committed company data, the local runtime, and read-only evaluation share one PostgreSQL service.</text>
+  <text x="70" y="106" class="subtitle">Committed Redwood data, the local runtime, and read-only evaluation share one PostgreSQL service.</text>
 
   <rect x="55" y="140" width="1120" height="230" rx="24" fill="#fffdf5" stroke="#d97706" stroke-width="2"/>
   <text x="80" y="175" class="band">1 · SAFE FIRST-RUN DATABASE SETUP</text>
@@ -48,12 +48,12 @@
   <path d="M 715 292 L 645 292" class="line"/>
 
   <rect x="715" y="190" width="420" height="70" rx="16" fill="#ffffff" stroke="#f59e0b" stroke-width="2"/>
-  <text x="740" y="220" class="code">data/company/</text>
+  <text x="740" y="220" class="code">data/redwood/</text>
   <text x="740" y="247" class="small">manifest · identities · ACLs · four source artifact sets</text>
 
   <rect x="715" y="280" width="420" height="70" rx="16" fill="#ffffff" stroke="#f59e0b" stroke-width="2"/>
-  <text x="740" y="310" class="code">db/init/001_schema.sql</text>
-  <text x="740" y="337" class="small">schema · full text · pgvector · telemetry tables</text>
+  <text x="740" y="310" class="code">db/init/001 + 002</text>
+  <text x="740" y="337" class="small">schema · resumable state · full text · pgvector</text>
 
   <rect x="55" y="400" width="1120" height="270" rx="24" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
   <text x="80" y="435" class="band">2 · LOCAL RUNTIME · HOST PROCESSES</text>
@@ -93,7 +93,7 @@
 
   <rect x="85" y="775" width="275" height="120" rx="18" fill="#ffffff" stroke="#4ade80" stroke-width="2"/>
   <text x="110" y="810" class="heading">Versioned inputs</text>
-  <text x="110" y="844" class="small">eval/queries.json + corpus</text>
+  <text x="110" y="844" class="small">eval/redwood_queries.json + corpus</text>
   <text x="110" y="873" class="small">released + challenger profiles</text>
 
   <path d="M 360 835 L 410 835" class="line"/>
@@ -129,7 +129,7 @@
 
   <rect x="1240" y="450" width="275" height="100" rx="18" fill="#ffffff" stroke="#64748b" stroke-width="2"/>
   <text x="1265" y="486" class="code">app database</text>
-  <text x="1265" y="520" class="small">imported company dataset</text>
+  <text x="1265" y="520" class="small">imported Redwood dataset</text>
 
   <rect x="1240" y="600" width="275" height="100" rx="18" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
   <text x="1265" y="636" class="code">repeatable-read snapshot</text>
@@ -145,5 +145,5 @@
   <path d="M 1377 755 C 1200 740, 1200 550, 1240 525" class="control"/>
 
   <rect x="55" y="958" width="1490" height="28" rx="14" fill="#e2e8f0"/>
-  <text x="800" y="978" class="small" text-anchor="middle">Everything except PostgreSQL runs on the host. The committed company corpus uses no live service connector.</text>
+  <text x="800" y="978" class="small" text-anchor="middle">Everything except PostgreSQL runs on the host. The committed Redwood corpus uses no live service connector.</text>
 </svg>

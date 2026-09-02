@@ -29,7 +29,7 @@ from knowledge_browser.embedding_index import (
 )
 
 
-DATA = Path(__file__).parents[2] / "data" / "company"
+DATA = Path(__file__).parents[2] / "data" / "redwood"
 MODEL = "text-embedding-3-small"
 VECTOR = [0.0] * 1536
 pytestmark = pytest.mark.integration
@@ -72,7 +72,11 @@ def tiny_dataset(tmp_path, validated_company):
         root=tmp_path,
         manifest={"dataset_version": "tiny-v1", "counts": {"artifacts": 3}},
         manifest_digest="tiny-manifest",
-        context=validated_company.context,
+        context={
+            **validated_company.context,
+            "users": validated_company.context["users"][:1],
+            "identity_groups": (),
+        },
     )
 
 
@@ -441,6 +445,7 @@ def test_concurrent_runs_do_not_repeat_provider_work_or_move_progress_backward(
             tiny_dataset,
             CoordinatedClient,
             document_batch_size=batch_size,
+            work_window_size=1,
             stop_after_batches=1,
         )
 
@@ -463,8 +468,8 @@ def test_concurrent_runs_do_not_repeat_provider_work_or_move_progress_backward(
     assert first_result.run_id == second_result.run_id
     with connection_factory() as conn:
         progress = load_progress(conn, first_result.run_id, "jira")
-        assert (progress.next_line, progress.documents) == (4, 3)
-        assert conn.execute("SELECT count(*) FROM documents").fetchone() == (3,)
+        assert (progress.next_line, progress.documents) == (3, 2)
+        assert conn.execute("SELECT count(*) FROM documents").fetchone() == (2,)
 
 
 def test_failure_is_recorded_before_the_import_lock_is_released(
@@ -721,12 +726,13 @@ def test_transient_provider_failure_stops_after_five_attempts_with_safe_state(
     assert client.max_retries > 0
     try:
         with pytest.raises(RuntimeError, match="embedding provider unavailable"):
-            run_import(
-                connection_factory,
-                tiny_dataset,
-                lambda: client,
-                document_batch_size=1,
-            )
+                run_import(
+                    connection_factory,
+                    tiny_dataset,
+                    lambda: client,
+                    document_batch_size=1,
+                    work_window_size=1,
+                )
     finally:
         client.close()
 

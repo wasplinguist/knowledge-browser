@@ -88,7 +88,7 @@ inside this repository.
   "intent_audit": {"verdict": "ALIGNED", "evidence": "weekly reformulation"},
   "baseline_profile": "search/profiles/released.json",
   "challenger_profile": "search/profiles/candidates/nrel-alias.json",
-  "golden_queries": "eval/golden_queries.json",
+  "golden_queries": "eval/fixture_queries.json",
   "query_embeddings": "/tmp/knowledge-browser-behavior/query-embeddings.json",
   "golden_changes": [],
   "golden_change_reason": "Existing labels already measure this behavior.",

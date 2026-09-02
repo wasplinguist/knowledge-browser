@@ -25,7 +25,7 @@ from knowledge_browser.profiles import load_profile
 
 pytestmark = pytest.mark.integration
 
-DATA = Path(__file__).parents[2] / "data" / "company"
+DATA = Path(__file__).parents[2] / "data" / "redwood"
 RELEASED = Path(__file__).parents[2] / "search" / "profiles" / "released.json"
 VECTOR = [0.0] * 1536
 
