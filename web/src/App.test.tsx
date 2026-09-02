@@ -156,6 +156,17 @@ it('renders safe Markdown and keeps inline citations interactive', async () => {
   expect(await screen.findByRole('dialog')).toBeVisible()
 })
 
+it('keeps the current results when the search text is cleared', async () => {
+  await searchFor()
+
+  const resultButton = await screen.findByRole('button', { name: 'Investigate pool timeout' })
+  await userEvent.clear(screen.getByRole('searchbox'))
+
+  expect(screen.getByRole('searchbox')).toHaveValue('')
+  expect(resultButton).toBeVisible()
+  expect(screen.queryByRole('heading', { name: 'Search company knowledge' })).not.toBeInTheDocument()
+})
+
 it('shows structured evidence and opens inline citations in the local panel', async () => {
   vi.mocked(fetch).mockImplementation((input) => {
     const url = String(input)

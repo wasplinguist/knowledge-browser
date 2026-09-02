@@ -222,9 +222,9 @@ export default function App() {
             aria-label="Search company knowledge"
             placeholder="Search company knowledge"
             value={query}
-            onChange={(event) => { setQuery(event.target.value); clearResults() }}
+            onChange={(event) => setQuery(event.target.value)}
           />
-          <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); clearResults() }}>×</button>
+          <button type="button" aria-label="Clear search" onClick={() => setQuery('')}>×</button>
         </form>
         <label className="profile">
           Demo user
@@ -246,7 +246,7 @@ export default function App() {
 
     <div className="layout">
       <main>
-        {!query && <section className="empty">
+        {!hasSearched && !loading && <section className="empty">
           <h1>Search company knowledge</h1>
           <p>Find decisions, incidents, plans, conversations, and code.</p>
           <div>{examples.map((example) =>
