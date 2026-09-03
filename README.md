@@ -248,7 +248,7 @@ renderings under `data/redwood/artifacts/`.
   They do not become searchable documents or direct evaluation inputs.
 - `manifest.json` records the dataset version, seed, counts, and SHA-256 digest
   of every listed dataset file.
-- `eval/fixture_queries.json` is the four-query pull-request smoke set;
+- `eval/fixture_queries.json` is the eleven-query pull-request smoke set;
   `eval/redwood_queries.json` is the complete golden set. Neither is saved run
   output.
 
@@ -272,7 +272,7 @@ definitions are separated by runtime cost:
 
 | File | Purpose |
 | --- | --- |
-| `eval/fixture_queries.json` | Four small, hand-checkable queries for fast pull-request evaluation |
+| `eval/fixture_queries.json` | Eleven small, hand-checkable queries; one whole-corpus sweep per distinct ACL shape |
 | `eval/redwood_queries.json` | The complete 298-question retrieval benchmark |
 
 | Question family | Questions | What it evaluates |

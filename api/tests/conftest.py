@@ -158,6 +158,124 @@ def _seed(conn: psycopg.Connection) -> None:
     )
 
 
+def _seed_diverse_acl_shapes(conn: psycopg.Connection) -> None:
+    """Permission-set signatures the Redwood corpus never produces.
+
+    Every native permission set names exactly one group and no direct user, so
+    the corpus alone can never tell a union from an intersection, nor prove that
+    a grant reaching nobody stays harmless. These sets add the missing shapes:
+    two groups on one set, a direct grant layered on a group grant, two named
+    users on top of a group that already contains one of them, a set naming a
+    group with no members, and one set governing two documents.
+    """
+    conn.execute(
+        """
+        INSERT INTO users (id, email, name) VALUES
+          ('00000000-0000-0000-0000-000000000005', 'both@example.test', 'Both Groups'),
+          ('00000000-0000-0000-0000-000000000006', 'inert@example.test', 'Inert Group'),
+          ('00000000-0000-0000-0000-000000000007', 'redundant@example.test',
+           'Redundant Grant'),
+          ('00000000-0000-0000-0000-000000000008', 'reused@example.test', 'Reused Set');
+        INSERT INTO groups (id, name) VALUES
+          ('10000000-0000-0000-0000-000000000002', 'security'),
+          ('10000000-0000-0000-0000-000000000003', 'inert'),
+          ('10000000-0000-0000-0000-000000000004', 'vacant');
+        -- 'inert' has a member and grants nothing; 'vacant' grants a set and has
+        -- no member. Both must leave access unchanged, for opposite reasons.
+        INSERT INTO group_memberships (group_id, user_id) VALUES
+          ('10000000-0000-0000-0000-000000000001',
+           '00000000-0000-0000-0000-000000000005'),
+          ('10000000-0000-0000-0000-000000000002',
+           '00000000-0000-0000-0000-000000000005'),
+          ('10000000-0000-0000-0000-000000000003',
+           '00000000-0000-0000-0000-000000000006'),
+          ('10000000-0000-0000-0000-000000000001',
+           '00000000-0000-0000-0000-000000000007');
+
+        INSERT INTO permission_sets (id, visibility) VALUES
+          ('20000000-0000-0000-0000-000000000006', 'restricted'),
+          ('20000000-0000-0000-0000-000000000007', 'restricted'),
+          ('20000000-0000-0000-0000-000000000008', 'restricted'),
+          ('20000000-0000-0000-0000-000000000009', 'restricted'),
+          ('20000000-0000-0000-0000-000000000010', 'restricted');
+        INSERT INTO permission_set_groups (permission_set_id, group_id) VALUES
+          -- One set, two groups: reachable by either, which is a union not an AND.
+          ('20000000-0000-0000-0000-000000000006',
+           '10000000-0000-0000-0000-000000000001'),
+          ('20000000-0000-0000-0000-000000000006',
+           '10000000-0000-0000-0000-000000000002'),
+          ('20000000-0000-0000-0000-000000000007',
+           '10000000-0000-0000-0000-000000000002'),
+          ('20000000-0000-0000-0000-000000000008',
+           '10000000-0000-0000-0000-000000000001'),
+          -- A set whose only group has no members reaches nobody.
+          ('20000000-0000-0000-0000-000000000009',
+           '10000000-0000-0000-0000-000000000004');
+        INSERT INTO permission_set_users (permission_set_id, user_id) VALUES
+          -- A direct grant layered on top of a group grant on the same set.
+          ('20000000-0000-0000-0000-000000000007',
+           '00000000-0000-0000-0000-000000000002'),
+          -- Two named users on a set that also names a group; the second user is
+          -- already in that group, so the direct grant must change nothing.
+          ('20000000-0000-0000-0000-000000000008',
+           '00000000-0000-0000-0000-000000000002'),
+          ('20000000-0000-0000-0000-000000000008',
+           '00000000-0000-0000-0000-000000000007'),
+          ('20000000-0000-0000-0000-000000000010',
+           '00000000-0000-0000-0000-000000000008');
+
+        INSERT INTO documents (
+          id, source, kind, external_id, root_document_id, permission_set_id,
+          title, body, container, raw_payload
+        ) VALUES
+          ('30000000-0000-0000-0000-000000000011', 'confluence', 'page', 'SHARED-1',
+           '30000000-0000-0000-0000-000000000011',
+           '20000000-0000-0000-0000-000000000006',
+           'Shared document', 'Shared body', 'Engineering', '{}'),
+          ('30000000-0000-0000-0000-000000000012', 'confluence', 'page', 'SECURITY-1',
+           '30000000-0000-0000-0000-000000000012',
+           '20000000-0000-0000-0000-000000000007',
+           'Security document', 'Security body', 'Security', '{}'),
+          ('30000000-0000-0000-0000-000000000013', 'github', 'pull_request', 'PAIR-1',
+           '30000000-0000-0000-0000-000000000013',
+           '20000000-0000-0000-0000-000000000008',
+           'Pair document', 'Pair body', 'northstar/browser', '{}'),
+          ('30000000-0000-0000-0000-000000000014', 'slack', 'message', 'VACANT-1',
+           '30000000-0000-0000-0000-000000000014',
+           '20000000-0000-0000-0000-000000000009',
+           'Vacant document', 'Vacant body', '#vacant', '{}'),
+          -- One permission set governing two documents.
+          ('30000000-0000-0000-0000-000000000015', 'confluence', 'page', 'REUSED-1',
+           '30000000-0000-0000-0000-000000000015',
+           '20000000-0000-0000-0000-000000000010',
+           'Reused document one', 'Reused body one', 'Archive', '{}'),
+          ('30000000-0000-0000-0000-000000000016', 'confluence', 'page', 'REUSED-2',
+           '30000000-0000-0000-0000-000000000016',
+           '20000000-0000-0000-0000-000000000010',
+           'Reused document two', 'Reused body two', 'Archive', '{}');
+
+        INSERT INTO chunks (
+          source, id, document_id, field, text, chunk_index, content_hash, metadata
+        )
+        SELECT source, source || ':' || external_id || ':0', id, 'body', body, 0,
+               external_id || '-hash', jsonb_build_object('external_id', external_id)
+        FROM documents WHERE external_id IN (
+          'SHARED-1', 'SECURITY-1', 'PAIR-1', 'VACANT-1', 'REUSED-1', 'REUSED-2'
+        );
+
+        INSERT INTO sentences (
+          source, chunk_id, sentence_index, sentence, embedding, embedding_model
+        )
+        SELECT source, source || ':' || external_id || ':0', 0, body,
+               ('[' || array_to_string(array_fill('0'::text, ARRAY[1536]), ',') || ']')::halfvec,
+               'test-embedding'
+        FROM documents WHERE external_id IN (
+          'SHARED-1', 'SECURITY-1', 'PAIR-1', 'VACANT-1', 'REUSED-1', 'REUSED-2'
+        );
+        """
+    )
+
+
 def _seed_malformed_root_chain(conn: psycopg.Connection) -> None:
     conn.execute(
         """

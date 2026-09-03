@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _seed_diverse_acl_shapes
 from knowledge_browser.eval_loop import execute_evaluation, experiment_paths
 
 
@@ -10,6 +11,7 @@ pytestmark = pytest.mark.search_eval
 
 
 def test_real_loop_evaluator_uses_same_queries_and_a_fast_acl_sample(db, tmp_path):
+    _seed_diverse_acl_shapes(db)
     root = tmp_path
     (root / "evidence").mkdir()
     (root / "profiles").mkdir()
@@ -43,10 +45,10 @@ def test_real_loop_evaluator_uses_same_queries_and_a_fast_acl_sample(db, tmp_pat
 
     evaluation = execute_evaluation(db, manifest, experiment_paths(manifest, root))
 
-    assert evaluation["baseline"]["query_count"] == 4
-    assert evaluation["candidate"]["query_count"] == 4
+    assert evaluation["baseline"]["query_count"] == 11
+    assert evaluation["candidate"]["query_count"] == 11
     assert evaluation["candidate"]["overall"]["forbidden_leaks"] == 0
-    assert 0 < evaluation["fast_acl"]["pairs"] <= 4 * 4
+    assert 0 < evaluation["fast_acl"]["pairs"] <= 11 * 8
     assert evaluation["fast_acl"]["root_leaks"] == []
     assert evaluation["fast_acl"]["child_leaks"] == []
     assert evaluation["latency_ms"]["baseline"] > 0
