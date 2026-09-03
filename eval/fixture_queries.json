@@ -30,5 +30,121 @@
     "relevant": [],
     "grades": {},
     "must_not_appear": ["slack:GROUP-1", "jira:HIDDEN-ROOT"]
+  },
+  {
+    "id": "sweep-company-only-user",
+    "as_user": "00000000-0000-0000-0000-000000000006",
+    "query": "body",
+    "relevant": ["jira:COMPANY-1", "jira:VISIBLE-ROOT"],
+    "grades": {"jira:COMPANY-1": 2, "jira:VISIBLE-ROOT": 2},
+    "must_not_appear": [
+      "confluence:DIRECT-1", "slack:GROUP-1", "github:MISSING-1",
+      "jira:HIDDEN-ROOT", "confluence:SHARED-1", "confluence:SECURITY-1",
+      "github:PAIR-1", "slack:VACANT-1", "confluence:REUSED-1",
+      "confluence:REUSED-2"
+    ]
+  },
+  {
+    "id": "sweep-single-group-user",
+    "as_user": "00000000-0000-0000-0000-000000000003",
+    "query": "body",
+    "relevant": [
+      "jira:COMPANY-1", "jira:VISIBLE-ROOT", "slack:GROUP-1",
+      "confluence:SHARED-1", "github:PAIR-1"
+    ],
+    "grades": {
+      "jira:COMPANY-1": 2, "jira:VISIBLE-ROOT": 2, "slack:GROUP-1": 2,
+      "confluence:SHARED-1": 2, "github:PAIR-1": 2
+    },
+    "must_not_appear": [
+      "confluence:DIRECT-1", "github:MISSING-1", "jira:HIDDEN-ROOT",
+      "confluence:SECURITY-1", "slack:VACANT-1", "confluence:REUSED-1",
+      "confluence:REUSED-2"
+    ]
+  },
+  {
+    "id": "sweep-redundant-grant-user",
+    "as_user": "00000000-0000-0000-0000-000000000007",
+    "query": "body",
+    "relevant": [
+      "jira:COMPANY-1", "jira:VISIBLE-ROOT", "slack:GROUP-1",
+      "confluence:SHARED-1", "github:PAIR-1"
+    ],
+    "grades": {
+      "jira:COMPANY-1": 2, "jira:VISIBLE-ROOT": 2, "slack:GROUP-1": 2,
+      "confluence:SHARED-1": 2, "github:PAIR-1": 2
+    },
+    "must_not_appear": [
+      "confluence:DIRECT-1", "github:MISSING-1", "jira:HIDDEN-ROOT",
+      "confluence:SECURITY-1", "slack:VACANT-1", "confluence:REUSED-1",
+      "confluence:REUSED-2"
+    ]
+  },
+  {
+    "id": "sweep-two-group-user",
+    "as_user": "00000000-0000-0000-0000-000000000005",
+    "query": "body",
+    "relevant": [
+      "jira:COMPANY-1", "jira:VISIBLE-ROOT", "slack:GROUP-1",
+      "confluence:SHARED-1", "confluence:SECURITY-1", "github:PAIR-1"
+    ],
+    "grades": {
+      "jira:COMPANY-1": 2, "jira:VISIBLE-ROOT": 2, "slack:GROUP-1": 2,
+      "confluence:SHARED-1": 2, "confluence:SECURITY-1": 2, "github:PAIR-1": 2
+    },
+    "must_not_appear": [
+      "confluence:DIRECT-1", "github:MISSING-1", "jira:HIDDEN-ROOT",
+      "slack:VACANT-1", "confluence:REUSED-1", "confluence:REUSED-2"
+    ]
+  },
+  {
+    "id": "sweep-direct-grant-user",
+    "as_user": "00000000-0000-0000-0000-000000000002",
+    "query": "body",
+    "relevant": [
+      "jira:COMPANY-1", "jira:VISIBLE-ROOT", "confluence:DIRECT-1",
+      "confluence:SECURITY-1", "github:PAIR-1"
+    ],
+    "grades": {
+      "jira:COMPANY-1": 2, "jira:VISIBLE-ROOT": 2, "confluence:DIRECT-1": 2,
+      "confluence:SECURITY-1": 2, "github:PAIR-1": 2
+    },
+    "must_not_appear": [
+      "slack:GROUP-1", "github:MISSING-1", "jira:HIDDEN-ROOT",
+      "confluence:SHARED-1", "slack:VACANT-1", "confluence:REUSED-1",
+      "confluence:REUSED-2"
+    ]
+  },
+  {
+    "id": "sweep-reused-set-user",
+    "as_user": "00000000-0000-0000-0000-000000000008",
+    "query": "body",
+    "relevant": [
+      "jira:COMPANY-1", "jira:VISIBLE-ROOT", "confluence:REUSED-1",
+      "confluence:REUSED-2"
+    ],
+    "grades": {
+      "jira:COMPANY-1": 2, "jira:VISIBLE-ROOT": 2, "confluence:REUSED-1": 2,
+      "confluence:REUSED-2": 2
+    },
+    "must_not_appear": [
+      "confluence:DIRECT-1", "slack:GROUP-1", "github:MISSING-1",
+      "jira:HIDDEN-ROOT", "confluence:SHARED-1", "confluence:SECURITY-1",
+      "github:PAIR-1", "slack:VACANT-1"
+    ]
+  },
+  {
+    "id": "sweep-restricted-root-user",
+    "as_user": "00000000-0000-0000-0000-000000000004",
+    "query": "body",
+    "relevant": ["jira:COMPANY-1", "jira:VISIBLE-ROOT", "jira:HIDDEN-ROOT"],
+    "grades": {
+      "jira:COMPANY-1": 2, "jira:VISIBLE-ROOT": 2, "jira:HIDDEN-ROOT": 2
+    },
+    "must_not_appear": [
+      "confluence:DIRECT-1", "slack:GROUP-1", "github:MISSING-1",
+      "confluence:SHARED-1", "confluence:SECURITY-1", "github:PAIR-1",
+      "slack:VACANT-1", "confluence:REUSED-1", "confluence:REUSED-2"
+    ]
   }
 ]

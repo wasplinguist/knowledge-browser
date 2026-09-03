@@ -2,7 +2,12 @@ from uuid import UUID
 
 import pytest
 
-from knowledge_browser.eval_entitlement import audit_acl, allowed_documents, is_visible
+from knowledge_browser.eval_entitlement import (
+    allowed_documents,
+    audit_acl,
+    entitlement_classes,
+    is_visible,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -10,7 +15,9 @@ pytestmark = pytest.mark.unit
 
 USER = UUID("00000000-0000-0000-0000-000000000001")
 OTHER = UUID("00000000-0000-0000-0000-000000000002")
+THIRD = UUID("00000000-0000-0000-0000-000000000003")
 ENG = UUID("10000000-0000-0000-0000-000000000001")
+SALES = UUID("10000000-0000-0000-0000-000000000002")
 
 
 def test_independent_entitlement_defaults_to_deny():
@@ -36,6 +43,50 @@ def test_independent_entitlement_builds_allowed_document_sets():
 
     assert allowed_documents(documents, USER, {ENG}) == {"company", "direct", "group"}
     assert allowed_documents(documents, OTHER, set()) == {"company"}
+
+
+def test_entitlement_classes_collapse_users_with_identical_access():
+    documents = {
+        "company": {"visibility": "company"},
+        "eng": {"visibility": "restricted", "groups": {ENG}},
+    }
+    memberships = {USER: {ENG}, OTHER: {SALES}, THIRD: {ENG, SALES}}
+
+    classes = entitlement_classes(memberships, documents)
+
+    assert classes == {USER: (USER, THIRD), OTHER: (OTHER,)}
+    assert sum(len(members) for members in classes.values()) == len(memberships)
+    for representative, members in classes.items():
+        expected = allowed_documents(documents, representative, memberships[representative])
+        for member in members:
+            assert allowed_documents(documents, member, memberships[member]) == expected
+
+
+def test_entitlement_classes_keep_ranking_signals_apart():
+    """Personalization reads the user, so equal access is not enough to merge."""
+    documents = {"company": {"visibility": "company"}}
+    memberships = {USER: set(), OTHER: set(), THIRD: set()}
+
+    merged = entitlement_classes(memberships, documents)
+    split = entitlement_classes(
+        memberships, documents, {USER: "atlas", OTHER: "atlas", THIRD: "orion"}
+    )
+
+    assert merged == {USER: (USER, OTHER, THIRD)}
+    assert split == {USER: (USER, OTHER), THIRD: (THIRD,)}
+
+
+def test_entitlement_classes_separate_direct_grants_from_group_grants():
+    documents = {
+        "direct": {"visibility": "restricted", "users": {USER}},
+        "eng": {"visibility": "restricted", "groups": {ENG}},
+        "unreadable": None,
+    }
+    memberships = {USER: {ENG}, OTHER: {ENG}, THIRD: set()}
+
+    classes = entitlement_classes(memberships, documents)
+
+    assert classes == {USER: (USER,), OTHER: (OTHER,), THIRD: (THIRD,)}
 
 
 def test_acl_audit_counts_pairs_and_reports_root_and_child_leaks():

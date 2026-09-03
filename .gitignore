@@ -18,4 +18,5 @@ data/*
 !data/redwood/
 !data/redwood/**
 data/.cache/
+eval/.cache/
 docs/superpowers/

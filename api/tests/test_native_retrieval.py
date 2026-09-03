@@ -1,12 +1,11 @@
-import hashlib
 import json
 import os
 from pathlib import Path
-from urllib.request import Request, urlopen
 
 import psycopg
 import pytest
 
+from knowledge_browser.eval_query_embeddings import load_query_embeddings
 from knowledge_browser.evaluation import (
     evaluate_queries,
     load_golden_queries,
@@ -22,46 +21,18 @@ QUERIES = Path(os.environ.get("NATIVE_GOLDEN_QUERIES", ROOT / "eval" / "redwood_
 PROFILE = Path(os.environ.get(
     "NATIVE_RELEASED_PROFILE", ROOT / "search" / "profiles" / "released.json"
 ))
-MODEL = "text-embedding-3-small"
-
-
-def _cache_key(text: str) -> str:
-    return hashlib.sha256(f"{MODEL}\0{text}".encode()).hexdigest()
+EMBEDDINGS = Path(os.environ.get(
+    "NATIVE_QUERY_EMBEDDINGS",
+    ROOT / "eval" / ".cache" / "redwood_query_embeddings.json",
+))
 
 
 def _query_embeddings(queries: list[dict]) -> dict[str, list[float]]:
-    cache_path = os.environ.get("NATIVE_EMBEDDING_CACHE")
-    cache = json.loads(Path(cache_path).read_text()) if cache_path else {}
-    vectors = {
-        query["query"]: cache[_cache_key(query["query"])]
-        for query in queries
-        if _cache_key(query["query"]) in cache
-    }
-    missing = list(dict.fromkeys(
-        query["query"] for query in queries if query["query"] not in vectors
-    ))
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if missing and not api_key:
-        pytest.fail(
-            f"{len(missing)} query embeddings are missing; set OPENAI_API_KEY "
-            "or provide NATIVE_EMBEDDING_CACHE"
-        )
-    for start in range(0, len(missing), 100):
-        batch = missing[start:start + 100]
-        request = Request(
-            "https://api.openai.com/v1/embeddings",
-            data=json.dumps({"model": MODEL, "input": batch}).encode(),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urlopen(request, timeout=120) as response:
-            payload = json.load(response)
-        by_index = {item["index"]: item["embedding"] for item in payload["data"]}
-        vectors.update({text: by_index[index] for index, text in enumerate(batch)})
-    return vectors
+    return load_query_embeddings(
+        EMBEDDINGS,
+        queries,
+        allow_requests=bool(os.environ.get("OPENAI_API_KEY", "").strip()),
+    )
 
 
 @pytest.mark.search_eval

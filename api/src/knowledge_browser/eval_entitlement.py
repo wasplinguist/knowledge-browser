@@ -34,6 +34,47 @@ def allowed_documents(
     }
 
 
+def _permission_key(permission: Mapping[str, Any] | None):
+    if not isinstance(permission, Mapping):
+        return None
+    return (
+        permission.get("visibility"),
+        frozenset(permission.get("users", ())),
+        frozenset(permission.get("groups", ())),
+    )
+
+
+def entitlement_classes(
+    memberships: Mapping[UUID, set[UUID]],
+    documents: Mapping[str, Mapping[str, Any] | None],
+    distinguish: Mapping[UUID, Any] | None = None,
+) -> dict[UUID, tuple[UUID, ...]]:
+    """Group users that search cannot tell apart, so one stands in for all.
+
+    A user reaches a document only through its permission set, so users who
+    resolve the same permission sets share one allowed document set. Ranking can
+    still read the user directly — personalization boosts the user's own project
+    — and that would let one member of a class retrieve a document another
+    member truncates away. Pass those ranking inputs as `distinguish` (user id
+    to whatever the profile reads) so such users stay in separate classes;
+    omitting it is only safe when no ranking signal reads the user.
+    """
+    permissions = {
+        key: permission
+        for permission in documents.values()
+        if (key := _permission_key(permission)) is not None
+    }
+    ordered = sorted(permissions, key=repr)
+    classes: dict[tuple[Any, ...], list[UUID]] = {}
+    for user_id, group_ids in memberships.items():
+        signature = (
+            tuple(is_visible(permissions[key], user_id, group_ids) for key in ordered),
+            repr((distinguish or {}).get(user_id)),
+        )
+        classes.setdefault(signature, []).append(user_id)
+    return {min(members): tuple(sorted(members)) for members in classes.values()}
+
+
 def entitlement_snapshot(conn) -> tuple[
     dict[UUID, set[UUID]], dict[str, Mapping[str, Any]]
 ]:

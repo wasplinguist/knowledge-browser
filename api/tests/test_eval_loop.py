@@ -242,6 +242,22 @@ def test_fast_acl_sample_is_deterministic_and_includes_acl_queries_and_owners():
     assert "u18" in selected_users
 
 
+def test_fast_acl_sample_keeps_golden_queries_that_name_a_forbidden_document():
+    """The Redwood golden set marks ACL questions with must_not_appear, not acl_aware."""
+    queries = [
+        {"id": "denied", "type": "negative", "as_user": "u3",
+         "category": "acl_denied", "must_not_appear": ["jira:SECRET"]},
+        *[
+            {"id": f"filler{index}", "type": "negative", "as_user": "u1"}
+            for index in range(5)
+        ],
+    ]
+
+    selected, _ = select_fast_acl_inputs(queries, ["u1", "u3"])
+
+    assert "denied" in [item["id"] for item in selected]
+
+
 def test_decision_recommends_only_the_separate_release_gate():
     assert decide(_evaluation()) == "recommend-release-gate"
     worse = _evaluation()

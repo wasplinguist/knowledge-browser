@@ -219,13 +219,23 @@ def validate_manifest(
     return manifest
 
 
+def acl_targeted(query: Mapping[str, Any]) -> bool:
+    """A query written to probe ACL, by either golden-set convention.
+
+    Fixture queries carry `acl_aware`; the Redwood golden set instead names the
+    document that must stay hidden. Reading only the first silently dropped
+    every ACL question in the native corpus from the fast sample.
+    """
+    return bool(query.get("acl_aware") or query.get("must_not_appear"))
+
+
 def select_fast_acl_inputs(
     queries: Sequence[Mapping[str, Any]], users: Sequence[str], user_limit: int = 12
 ) -> tuple[list[Mapping[str, Any]], list[str]]:
     selected: list[Mapping[str, Any]] = []
     seen: set[str] = set()
     for query in queries:
-        if query.get("acl_aware"):
+        if acl_targeted(query):
             selected.append(query)
             seen.add(query["id"])
     type_counts: dict[str, int] = {}
