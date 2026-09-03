@@ -100,6 +100,9 @@ def test_answer_starts_with_shared_hybrid_results_and_cites_opened_evidence(monk
     assert "Queue incident" in responses.requests[0]["input"][0]["content"]
     assert "Use the initial allowed hybrid results first" in responses.requests[0]["instructions"]
     assert "only when they do not contain enough evidence" in responses.requests[0]["instructions"]
+    assert "GitHub-flavored Markdown" in responses.requests[0]["instructions"]
+    assert "use bold sparingly" in responses.requests[0]["instructions"]
+    assert "Do not add a Sources section" in responses.requests[0]["instructions"]
 
 
 def test_answer_opens_related_document_chunks_before_writing(monkeypatch):
@@ -475,6 +478,51 @@ def test_duplicate_citation_ids_return_one_citation(monkeypatch):
     )
 
     assert [item["chunk_id"] for item in answer["citations"]] == [hit["chunk_id"]]
+
+
+def test_raw_inline_citation_ids_are_replaced_with_numeric_markers(monkeypatch):
+    first = _result("dsid_first:body:0")
+    second = {
+        **_result("dsid_second:body:0"),
+        "external_id": "DOC-2",
+        "matched_external_id": "DOC-2",
+        "title": "Cost defaults",
+        "url": "https://jira.test/DOC-2",
+    }
+    monkeypatch.setattr(answer_module, "hybrid_search", lambda *_args: [first, second])
+    monkeypatch.setattr(
+        answer_module,
+        "read_chunk_context",
+        lambda *_args: [{**first, "text": "First."}, {**second, "text": "Second."}],
+    )
+    responses = Responses([
+        _call("read", "read_chunk", {
+            "source": "jira", "chunk_id": first["chunk_id"],
+        }),
+        _final({
+            "answer": (
+                "## Latest update\n\n**Cost controls** changed "
+                "[dsid_first:body:0].\n\n- Added recipes [DOC-2].\n"
+                "- Kept [1] unchanged.\n\nSee [Runbook](https://example.test)."
+            ),
+            "evidence_status": "complete",
+            "citations": [first["chunk_id"], second["chunk_id"]],
+            "conflicts": [],
+            "missing_information": [],
+            "follow_ups": [],
+        }),
+    ])
+
+    answer = answer_module.answer_question(
+        None, "user", "What is the latest update?", lambda _query: None,
+        SimpleNamespace(responses=responses),
+    )
+
+    assert answer["answer"] == (
+        "## Latest update\n\n**Cost controls** changed [1].\n\n"
+        "- Added recipes [2].\n- Kept [1] unchanged.\n\n"
+        "See [Runbook](https://example.test)."
+    )
 
 
 def test_allowed_search_document_id_resolves_to_its_discovered_chunk(monkeypatch):

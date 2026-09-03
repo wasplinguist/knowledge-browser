@@ -133,6 +133,25 @@ def _citation_ids(value: Any) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
+def _number_inline_citations(
+    answer: Any,
+    citation_ids: list[str],
+    resolve_citation_id: Callable[[str], str | None],
+) -> Any:
+    if not isinstance(answer, str) or not citation_ids:
+        return answer
+    numbers = {
+        chunk_id: index for index, chunk_id in enumerate(citation_ids, start=1)
+    }
+
+    def replace(match: re.Match[str]) -> str:
+        value = match.group(1).strip()
+        resolved = resolve_citation_id(value)
+        return f"[{numbers[resolved]}]" if resolved in numbers else match.group(0)
+
+    return re.sub(r"\[([^\[\]\r\n]+)\](?![\[(])", replace, answer)
+
+
 def answer_question(
     conn,
     user_id: str,
@@ -183,8 +202,13 @@ def answer_question(
         "only when they do not contain enough evidence. Use only opened chunks "
         "for company facts. Read a chunk before citing it. "
         "If evidence is missing, say incomplete. If opened evidence disagrees, "
-        "say conflicting and cite both sides. Keep the answer concise and readable. "
-        "Put [1], [2], and so on after supported claims in citation order. Never "
+        "say conflicting and cite both sides. Write the answer as concise, readable "
+        "GitHub-flavored Markdown. Separate paragraphs and sections with blank lines; "
+        "use short headings, bullets, or numbered lists when they improve scanning; "
+        "and use bold sparingly for important terms or conclusions. Do not add a "
+        "Sources section because the interface renders it separately. Put [1], [2], "
+        "and so on after supported claims in citation order, with each citation in "
+        "its own brackets. Never "
         "put raw chunk IDs or evidence field names in the answer text. In the "
         "structured citations field, return only exact chunk_id values from "
         "successfully opened chunks, never URLs or external IDs. Return the "
@@ -392,7 +416,9 @@ def answer_question(
     elif evidence_status == "conflicting" or evidence_status == "complete" and not citations:
         evidence_status = "incomplete"
     result = {
-        "answer": payload.get("answer", raw),
+        "answer": _number_inline_citations(
+            payload.get("answer", raw), citation_ids, resolve_citation_id
+        ),
         "mode": selected_mode,
         "evidence_status": evidence_status,
         "citations": citations,
