@@ -134,8 +134,10 @@ def test_shared_and_layered_grants_reach_exactly_their_members(db):
 
 
 @pytest.mark.search_eval
-def test_fixture_corpus_carries_more_signatures_than_the_native_corpus(db):
-    """Redwood resolves to four permission-set signatures; the fixture adds shape."""
+def test_entitlement_classes_collapse_users_that_see_the_same_documents(db):
+    """The fixture holds shapes the native corpus cannot express, such as a
+    granted group with no members: dataset.py builds groups out of employee
+    membership, so a memberless group cannot exist in data/redwood at all."""
     _seed_diverse_acl_shapes(db)
     memberships, documents = entitlement_snapshot(db)
 
