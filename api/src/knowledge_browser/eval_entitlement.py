@@ -120,14 +120,32 @@ def audit_acl(
     queries: Sequence[str],
     search: Callable[[UUID, str], Sequence[Mapping[str, Any]]],
 ) -> dict[str, Any]:
+    """Search every pair, report leaks, and count what the search retrieved.
+
+    `pairs` counts attempts, not hits, so zero leaks is also what a search that
+    returns nothing reports. `restricted_hits` is the caller's guard: a gate that
+    asserts it stays positive fails when the retrieval it audits goes inert,
+    which is how a zero query vector emptied these result sets before.
+    """
+    restricted = {
+        document_id
+        for document_id, permission in documents.items()
+        if isinstance(permission, Mapping)
+        and permission.get("visibility") != "company"
+    }
     root_leaks: list[dict[str, str]] = []
     child_leaks: list[dict[str, str]] = []
+    hits = 0
+    restricted_hits = 0
     for user_id, group_ids in memberships.items():
         expected = allowed_documents(documents, user_id, group_ids)
         for query in queries:
             for item in search(user_id, query):
                 root = f'{item["source"]}:{item["external_id"]}'
                 child = f'{item["source"]}:{item["matched_external_id"]}'
+                hits += 1
+                if not {root, child}.isdisjoint(restricted):
+                    restricted_hits += 1
                 common = {"user_id": str(user_id), "query": query}
                 if root not in expected:
                     root_leaks.append({**common, "document": root})
@@ -135,6 +153,8 @@ def audit_acl(
                     child_leaks.append({**common, "document": child})
     return {
         "pairs": len(memberships) * len(queries),
+        "hits": hits,
+        "restricted_hits": restricted_hits,
         "root_leaks": root_leaks,
         "child_leaks": child_leaks,
     }

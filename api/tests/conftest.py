@@ -263,11 +263,15 @@ def _seed_diverse_acl_shapes(conn: psycopg.Connection) -> None:
           'SHARED-1', 'SECURITY-1', 'PAIR-1', 'VACANT-1', 'REUSED-1', 'REUSED-2'
         );
 
+        -- Not a zero vector: cosine distance to one is undefined, so an HNSW
+        -- scan never returns the row and every added shape would be untestable
+        -- on the semantic path for the same reason a zero query vector hid the
+        -- native result sets.
         INSERT INTO sentences (
           source, chunk_id, sentence_index, sentence, embedding, embedding_model
         )
         SELECT source, source || ':' || external_id || ':0', 0, body,
-               ('[' || array_to_string(array_fill('0'::text, ARRAY[1536]), ',') || ']')::halfvec,
+               ('[' || array_to_string(array_fill('0.1'::text, ARRAY[1536]), ',') || ']')::halfvec,
                'test-embedding'
         FROM documents WHERE external_id IN (
           'SHARED-1', 'SECURITY-1', 'PAIR-1', 'VACANT-1', 'REUSED-1', 'REUSED-2'
