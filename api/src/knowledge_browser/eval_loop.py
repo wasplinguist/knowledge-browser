@@ -222,9 +222,10 @@ def validate_manifest(
 def acl_targeted(query: Mapping[str, Any]) -> bool:
     """A query written to probe ACL, by either golden-set convention.
 
-    Fixture queries carry `acl_aware`; the Redwood golden set instead names the
-    document that must stay hidden. Reading only the first silently dropped
-    every ACL question in the native corpus from the fast sample.
+    `acl_aware` is an explicit flag; naming a forbidden document in
+    `must_not_appear` is the same claim stated by its evidence, and it is the
+    only one either committed golden set uses. Reading the flag alone silently
+    dropped all 24 Redwood ACL questions from the fast sample.
     """
     return bool(query.get("acl_aware") or query.get("must_not_appear"))
 

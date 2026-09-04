@@ -8,6 +8,7 @@ from knowledge_browser.eval_entitlement import (
     entitlement_classes,
     is_visible,
 )
+from knowledge_browser.profiles import SearchProfile
 
 
 pytestmark = pytest.mark.unit
@@ -76,6 +77,29 @@ def test_entitlement_classes_keep_ranking_signals_apart():
     assert split == {USER: (USER, OTHER), THIRD: (THIRD,)}
 
 
+def test_no_unreviewed_ranking_signal_can_read_the_user():
+    """Class reduction is exact only while `distinguish` carries every ranking
+    input that reads the user. Today that is personalization_weight alone, via
+    the searcher's primary_project_id. A new profile field can quietly add a
+    second one and turn the entitlement-class audit into an approximation with
+    nothing to announce it, so adding one has to fail here first.
+    """
+    assert set(SearchProfile.__dataclass_fields__) == {
+        "name",
+        "keyword_limit",
+        "semantic_limit",
+        "rrf_k",
+        "keyword_weight",
+        "semantic_weight",
+        "freshness_weight",
+        "authority_weight",
+        "jira_key_weight",
+        "personalization_weight",  # the one user-dependent signal
+        "query_expansions",
+        "embedding_model",
+    }
+
+
 def test_entitlement_classes_separate_direct_grants_from_group_grants():
     documents = {
         "direct": {"visibility": "restricted", "users": {USER}},
@@ -109,6 +133,8 @@ def test_acl_audit_counts_pairs_and_reports_root_and_child_leaks():
 
     assert result == {
         "pairs": 2,
+        "hits": 1,
+        "restricted_hits": 1,
         "root_leaks": [],
         "child_leaks": [{
             "user_id": str(OTHER),
@@ -116,3 +142,32 @@ def test_acl_audit_counts_pairs_and_reports_root_and_child_leaks():
             "document": "jira:secret",
         }],
     }
+
+
+def test_acl_audit_reports_no_restricted_hits_when_search_retrieves_nothing():
+    """Zero leaks is also what an inert search reports, so gates watch this count."""
+    documents = {"jira:secret": {"visibility": "restricted", "users": {USER}}}
+
+    result = audit_acl({USER: set()}, documents, ["a", "b"], lambda _user, _query: [])
+
+    assert result["pairs"] == 2
+    assert result["root_leaks"] == [] and result["child_leaks"] == []
+    assert result["hits"] == 0
+    assert result["restricted_hits"] == 0
+
+
+def test_acl_audit_does_not_count_company_wide_results_as_restricted():
+    """A corpus read only through company documents proves nothing about ACL."""
+    documents = {"jira:open": {"visibility": "company"}}
+
+    result = audit_acl(
+        {USER: set()},
+        documents,
+        ["query"],
+        lambda _user, _query: [{
+            "source": "jira", "external_id": "open", "matched_external_id": "open",
+        }],
+    )
+
+    assert result["hits"] == 1
+    assert result["restricted_hits"] == 0

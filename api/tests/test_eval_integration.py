@@ -17,7 +17,7 @@ from knowledge_browser.evaluation import (
     write_report,
 )
 from knowledge_browser.profiles import SearchProfile, load_profile
-from knowledge_browser.search import hybrid_search, keyword_search
+from knowledge_browser.search import hybrid_search, keyword_search, semantic_search
 
 
 ROOT = Path(__file__).parents[2]
@@ -162,6 +162,40 @@ def test_entitlement_classes_collapse_users_that_see_the_same_documents(db):
             assert allowed_documents(
                 documents, member, memberships[member]
             ) == expected
+
+
+@pytest.mark.search_eval
+def test_added_permission_shapes_hold_through_the_semantic_path(db):
+    """The added signatures were only ever swept with keyword search.
+
+    Both paths share one ACL predicate, but only the semantic path applies it
+    inside the HNSW candidate scan, and the golden sweep passes no query vector
+    at all. Give one added document a vector so the ANN scan has to rank it, and
+    the layered direct-plus-group grant has to survive that route too.
+    """
+    _seed_diverse_acl_shapes(db)
+    both_groups = UUID("00000000-0000-0000-0000-000000000005")
+    group_only = UUID("00000000-0000-0000-0000-000000000003")
+    vector = [0.1] * 1536
+
+    def reached(user_id):
+        return {
+            item["external_id"]
+            for item in semantic_search(db, user_id, vector, source="confluence")
+        }
+
+    # Reaching SHARED-1 either way is what makes the SECURITY-1 absence ACL
+    # rather than an empty result set.
+    assert reached(both_groups) >= {"SHARED-1", "SECURITY-1"}
+    assert "SHARED-1" in reached(group_only)
+    assert "SECURITY-1" not in reached(group_only)
+    assert all(
+        "VACANT-1" not in {
+            item["external_id"]
+            for item in semantic_search(db, user_id, vector, source="slack")
+        }
+        for user_id in entitlement_snapshot(db)[0]
+    )
 
 
 @pytest.mark.search_eval

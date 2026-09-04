@@ -6,6 +6,7 @@ import psycopg
 import pytest
 
 from knowledge_browser.eval_entitlement import (
+    allowed_documents,
     audit_acl,
     entitlement_classes,
     entitlement_snapshot,
@@ -91,11 +92,30 @@ def test_native_corpus_entitlement_classes_have_no_acl_leaks():
 
     covered = sum(len(members) for members in classes.values())
     assert len(memberships) == 7_245
+    # A partly imported corpus carries a fraction of the permission sets and so
+    # collapses into fewer classes than the real one. Pin the document count:
+    # counting classes instead once pinned a 4 that only a half-loaded corpus
+    # produces, and the whole audit would have run against a corpus this gate
+    # was never sized for.
+    assert len(documents) == 13_214
     assert covered == len(memberships)
     # Twelve permission-set signatures split the company into ten classes; the
     # audit runs one search per class and query, so this number is its cost.
     assert len(classes) == 10
+    # What makes one representative able to speak for its class: every member
+    # has to see exactly what the representative sees, or the audit skipped a
+    # user it only assumed was identical.
+    for representative, members in classes.items():
+        expected = allowed_documents(
+            documents, representative, memberships[representative]
+        )
+        assert all(
+            allowed_documents(documents, member, memberships[member]) == expected
+            for member in members
+        )
     assert result["pairs"] == len(classes) * len(queries)
+    # Zero leaks is also what an inert search reports; this proves it ran.
+    assert result["restricted_hits"] > 0
     assert result["root_leaks"] == []
     assert result["child_leaks"] == []
 
@@ -127,5 +147,6 @@ def test_native_corpus_has_zero_root_and_child_acl_leaks():
     assert len(memberships) == 7_245
     assert root_count == 13_214
     assert result["pairs"] == 2_159_010
+    assert result["restricted_hits"] > 0
     assert result["root_leaks"] == []
     assert result["child_leaks"] == []
