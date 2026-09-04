@@ -19,15 +19,17 @@ than a day and a half.
   embedding. The audited result sets never contained the documents a leak would
   come from.
 - The exhaustive matrix is 7,245 users x 298 queries = 2,159,010 pairs at ~62 ms
-  per pair, about 37 hours on a developer machine. The corpus resolves to four
-  distinct permission-set signatures, so 2,157,818 of those pairs re-test a
-  combination already covered.
+  per pair, about 37 hours on a developer machine. The corpus resolved to four
+  distinct permission-set signatures, so 2,157,818 of those pairs re-tested a
+  combination already covered. `redwood-acl-signatures.md` has since raised that
+  to twelve, leaving 2,156,030 redundant pairs.
 - `select_fast_acl_inputs` selected ACL questions by an `acl_aware` field that
   no Redwood golden query carries, so the eval loop's fast ACL sample contained
   no ACL question at all.
-- The corpus cannot reach several ACL branches: `permission_set_users` has zero
-  rows, no permission set names more than one group, and no document has a
-  parent, so the root check duplicates the child check.
+- The corpus could not reach several ACL branches: `permission_set_users` had
+  zero rows and no permission set named more than one group;
+  `redwood-acl-signatures.md` has since fixed both. No document has a parent, so
+  the root check still duplicates the child check.
 
 ## Scope
 
@@ -75,7 +77,7 @@ than a day and a half.
 
 ## Quality and performance
 
-- The entitlement-class audit runs 4 x 298 = 1,192 pairs in about 2.5 minutes
+- The entitlement-class audit runs 10 x 298 = 2,980 pairs in about 7 minutes
   against the loaded corpus, so nightly carries it.
 - The manual matrix keeps its full cost and its existing assertions.
 - Building the cache is one provider round trip for 274 distinct query texts.
@@ -86,12 +88,12 @@ than a day and a half.
 - The entitlement-class audit reports classes whose members sum to every user,
   and zero root and child leaks.
 - The fast ACL sample contains every golden query naming a forbidden document.
-- The fixture corpus carries ten permission-set signatures against the native
-  corpus's four: a set naming two groups, a direct grant layered on a group
-  grant, two named users on a set that already reaches one of them through its
-  group, a set whose only group has no members, a set no one is granted, one
-  set governing two documents, a group that grants nothing, a user in two
-  granting groups, and an unknown user.
+- The fixture corpus carries ten permission-set signatures, including shapes the
+  native corpus cannot express: a set naming two groups, a direct grant layered
+  on a group grant, two named users on a set that already reaches one of them
+  through its group, a set whose only group has no members, a set no one is
+  granted, one set governing two documents, a group that grants nothing, a user
+  in two granting groups, and an unknown user.
 - The fixture golden set carries one whole-corpus sweep per entitlement class,
   plus one for the redundant grant that must collapse into an existing class.
   Each names the exact documents that user may read and every document that

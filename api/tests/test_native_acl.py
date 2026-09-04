@@ -92,7 +92,9 @@ def test_native_corpus_entitlement_classes_have_no_acl_leaks():
     covered = sum(len(members) for members in classes.values())
     assert len(memberships) == 7_245
     assert covered == len(memberships)
-    assert len(classes) == 4
+    # Twelve permission-set signatures split the company into ten classes; the
+    # audit runs one search per class and query, so this number is its cost.
+    assert len(classes) == 10
     assert result["pairs"] == len(classes) * len(queries)
     assert result["root_leaks"] == []
     assert result["child_leaks"] == []
