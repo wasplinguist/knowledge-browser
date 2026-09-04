@@ -75,9 +75,11 @@ against the native database, not only by fixtures.
 
 ## Quality and performance
 
-- Measured against a clean import of the reshaped dataset, compared with the
-  four-signature database under the same profile and queries: Recall@10 holds at
-  0.7541, MRR moves 0.5489 to 0.5513, and search latency does not regress.
+- Retrieval quality does not regress. The `full_retrieval` gate, run against the
+  reshaped database and against the preserved four-signature database on the
+  same machine, code, profile, and 298 golden queries, reports MRR@10 0.5434 to
+  0.5500, nDCG@10 0.5598 to 0.5633, and Recall@10 0.6877 to 0.6897, with zero
+  forbidden-result leaks on both.
 - Twelve signatures split the 7,245 employees into ten entitlement classes,
   where four signatures split them into four. The class audit runs one search
   per class and query, so 298 queries cost 2,980 pairs instead of 1,192, about
